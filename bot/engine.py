@@ -45,6 +45,9 @@ class InstitutionalEngine:
 
     def __init__(self, broker):
         self.broker = broker
+        self.broker_label = getattr(broker, "LABEL", "unknown feed")
+        self.poll_seconds = 60 if self.broker_label.startswith("Live") else 10
+        self.warm = False
         self.symbols = list(UNIVERSE)
         self.params = dict(STRATEGY_PARAMS)
         self.cash = NAV_START
@@ -57,14 +60,38 @@ class InstitutionalEngine:
         self._thread = None
 
     # ---------------- data ----------------
+    def _warmup(self):
+        """Seed the trend model from real daily history when the feed supports it."""
+        getter = getattr(self.broker, "daily_history", None)
+        if not getter:
+            self.warm = True
+            return
+        for sym in self.symbols:
+            if self.history.get(sym):
+                continue
+            closes = getter(sym, bars=130)
+            if closes:
+                self.history[sym] = closes[-130:]
+                self.priced[sym] = closes[-1]
+        self.warm = True
+        log.info("warm-up complete: %d symbols seeded", sum(1 for h in self.history.values() if h))
     def _refresh_prices(self):
         quotes = self.broker.ltp(self.symbols)
+        live = self.broker_label.startswith("Live")
         for sym in self.symbols:
             px = quotes.get(sym) or self.priced.get(sym)
-            if px:
-                self.priced[sym] = float(px)
-                self.history.setdefault(sym, []).append(float(px))
-                self.history[sym] = self.history[sym][-300:]
+            if not px:
+                continue
+            px = float(px)
+            h = self.history.setdefault(sym, [])
+            changed = self.priced.get(sym) != px
+            self.priced[sym] = px
+            if live:
+                if not changed:
+                    continue
+                self.history[sym] = h[-299:] + [px]
+            else:
+                self.history[sym] = h[-299:] + [px] if h and h[-1] != px else (h or [px])
 
     # ---------------- book ----------------
     def nav(self):
@@ -167,6 +194,8 @@ class InstitutionalEngine:
             "target": round(entry * (1 + TARGET_PCT), 2),
             "suggested_qty": qty,
             "model_weight": round(pos["qty"] * px / nav, 4) if pos else 0.0,
+            "upside_pct": round((entry * (1 + TARGET_PCT) / entry - 1) * 100, 1),
+            "reward_risk": round(TARGET_PCT / STOP_PCT, 1),
             "basis": basis,
         }
 
@@ -178,21 +207,26 @@ class InstitutionalEngine:
 
     # ---------------- loop ----------------
     def step(self):
-        if not is_market_open():
-            self.status = "MARKET CLOSED (NSE/BSE 09:15-15:30 IST, Mon-Fri)"
-            return
-        self.status = "SCANNING"
-        self._refresh_prices()
-        for sym in list(self.positions):
-            px = self.priced[sym]
-            if px <= self.positions[sym]["entry"] * (1 - STOP_PCT):
-                self._sell(sym, px, "stop-loss")
-            elif self._signal(sym) == -1:
-                self._sell(sym, px, "trend break")
-        for sym in self.symbols:
-            if sym not in self.positions and self._signal(sym) == 1:
-                self._buy(sym, self.priced[sym])
-        self.status = "SCANNED"
+        if not self.warm:
+            self.status = "WARMING UP (seeding daily history per symbol)"
+            self._warmup()
+        if is_market_open():
+            self.status = "SCANNING (live)"
+            self._refresh_prices()
+            for sym in list(self.positions):
+                px = self.priced[sym]
+                if px <= self.positions[sym]["entry"] * (1 - STOP_PCT):
+                    self._sell(sym, px, "stop-loss")
+                elif self._signal(sym) == -1:
+                    self._sell(sym, px, "trend break")
+            for sym in self.symbols:
+                if sym not in self.positions and self._signal(sym) == 1:
+                    self._buy(sym, self.priced[sym])
+            self.status = "SCANNED (live)"
+        else:
+            if not self.history.get(self.symbols[0]):
+                self._warmup()
+            self.status = "MARKET CLOSED - levels on last close (NSE/BSE 09:15-15:30 IST, Mon-Fri)"
 
     def _run(self):
         while self.running:
@@ -200,7 +234,7 @@ class InstitutionalEngine:
                 self.step()
             except Exception:
                 log.exception("engine step failed")
-            _time.sleep(10)
+            _time.sleep(self.poll_seconds)
 
     def start(self):
         if self.running:
@@ -236,6 +270,8 @@ class InstitutionalEngine:
             "status": self.status,
             "market_open": is_market_open(),
             "mode": "institutional-model",
+            "data_source": self.broker_label,
+            "poll_seconds": self.poll_seconds,
             "universe_size": len(self.symbols),
             "by_exchange": _count_by_exchange(self.symbols),
             "nav": round(nav, 2),

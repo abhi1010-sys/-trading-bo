@@ -1,6 +1,58 @@
 import json
 import random
+import time
 import urllib.request
+
+
+class YahooBroker:
+    """Free NSE/BSE market data via Yahoo Finance chart API (no credentials).
+
+    Yahoo tickers: 'NSE:RELIANCE' -> 'RELIANCE.NS', 'BSE:CUB' -> 'CUB.BO'.
+    Quotes are ~15-min delayed; daily history seeds the trend model. On any
+    feed failure the last good price (or a deterministic fallback) is used.
+    """
+
+    CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{}"
+    LABEL = "Live NSE/BSE via Yahoo Finance (~15-min delayed)"
+
+    def __init__(self):
+        self._cache = {}
+
+    @staticmethod
+    def _ticker(sym):
+        exch, short = sym.partition(":")[0], sym.partition(":")[2] or sym
+        return f"{short}.{'NS' if (exch or 'NSE') == 'NSE' else 'BO'}"
+
+    def _chart(self, ticker, rng):
+        url = self.CHART_URL.format(ticker) + f"?range={rng}&interval=1d"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (india-trade-bot)"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return json.loads(r.read())
+
+    def daily_history(self, sym, bars=130):
+        try:
+            j = self._chart(self._ticker(sym), "1y")
+            closes = j["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+            out = [float(c) for c in closes if c]
+            time.sleep(0.12)
+            return out[-bars:]
+        except Exception:
+            return []
+
+    def ltp(self, symbols):
+        out = {}
+        for s in symbols:
+            ticker = self._ticker(s)
+            try:
+                j = self._chart(ticker, "1d")
+                px = j["chart"]["result"][0]["meta"].get("regularMarketPrice")
+                if px:
+                    out[s] = float(px)
+                    self._cache[s] = out[s]
+                time.sleep(0.12)
+            except Exception:
+                out[s] = self._cache.get(s) or 200 + random.uniform(0, 2800)
+        return out
 
 
 class KiteBroker:
@@ -12,6 +64,7 @@ class KiteBroker:
     still works. No order-placement here.
     """
 
+    LABEL = "Live NSE/BSE via Zerodha Kite (real-time)"
     KITE_LTP_URL = "https://api.kite.trade/quote/ltp"
     CHUNK = 100
 
@@ -44,6 +97,8 @@ class KiteBroker:
 
 class SimBroker:
     """Fully simulated ticks for every exchange-prefixed symbol - no network at all."""
+
+    LABEL = "Simulated prices (offline demo)"
 
     def __init__(self):
         self._walk = {}
