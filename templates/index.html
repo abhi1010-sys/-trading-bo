@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>India Trade Bot</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; background: #0d1117; }
+    .card { background: #161b22; border: 1px solid #21262d; }
+  </style>
+</head>
+<body class="text-gray-200 p-6">
+  <div class="max-w-4xl mx-auto">
+    <header class="mb-6">
+      <h1 class="text-2xl font-bold">🇮🇳 India Trade Bot <span class="text-gray-500 text-base">(NSE · Paper)</span></h1>
+      <p class="text-gray-500 text-sm mt-1">Long-only MA-crossover on NIFTY50 watchlist · paper fills only</p>
+    </header>
+
+    <div class="card rounded-lg p-4 mb-4 flex items-center gap-4">
+      <button id="btn-toggle" class="px-4 py-2 rounded bg-green-600 hover:bg-green-500 font-semibold text-sm">Start Bot</button>
+      <span id="status" class="text-sm text-gray-400">Standby</span>
+      <span class="ml-auto text-xs px-2 py-1 rounded border border-gray-700" id="badge-open">Market</span>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4 mb-4">
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Cash</div><div id="cash" class="text-xl font-semibold">–</div></div>
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Unrealised P&amp;L</div><div id="upnl" class="text-xl font-semibold">–</div></div>
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Total Value</div><div id="tv" class="text-xl font-semibold">–</div></div>
+    </div>
+
+    <div class="card rounded-lg p-4 mb-4">
+      <div class="text-xs text-gray-500 mb-2">Open Positions</div>
+      <table class="w-full text-sm"><thead class="text-gray-500 text-xs"><tr>
+        <th class="text-left pb-1">Symbol</th><th class="text-right">Qty</th><th class="text-right">Entry</th><th class="text-right">LTP</th><th class="text-right">P&amp;L</th>
+      </tr></thead><tbody id="positions"></tbody></table>
+    </div>
+
+    <div class="card rounded-lg p-4">
+      <div class="text-xs text-gray-500 mb-2">Trade Log</div>
+      <table class="w-full text-sm"><thead class="text-gray-500 text-xs"><tr>
+        <th class="text-left pb-1">Time</th><th class="text-left">Side</th><th class="text-left">Symbol</th><th class="text-right">Qty</th><th class="text-right">Price</th><th class="text-right">P&amp;L</th>
+      </tr></thead><tbody id="trades"></tbody></table>
+    </div>
+
+    <footer class="mt-6 text-[11px] text-gray-600">Educational prototype · no real orders · markets close 15:30 IST · <a class="underline" href="https://www.nseindia.com" target="_blank" rel="noopener">NSE</a></footer>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const inr = v => "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+
+    function render(s) {
+      $("status").textContent = s.running ? "Running" : (s.status || "Standby");
+      const btn = $("btn-toggle");
+      btn.textContent = s.running ? "Stop Bot" : "Start Bot";
+      btn.className = s.running
+        ? "px-4 py-2 rounded bg-red-600 hover:bg-red-500 font-semibold text-sm"
+        : "px-4 py-2 rounded bg-green-600 hover:bg-green-500 font-semibold text-sm";
+      const ob = $("badge-open");
+      ob.textContent = s.market_open ? "Market Open" : "Market Closed";
+      ob.className = "ml-auto text-xs px-2 py-1 rounded border " +
+        (s.market_open ? "border-green-700 text-green-400" : "border-gray-700 text-gray-500");
+      $("cash").textContent = s.cash != null ? inr(s.cash) : "–";
+      const u = s.unrealised_pnl ?? 0;
+      $("upnl").textContent = s.unrealised_pnl != null ? inr(u) : "–";
+      $("upnl").className = "text-xl font-semibold " + (u >= 0 ? "text-green-400" : "text-red-400");
+      $("tv").textContent = s.total_value != null ? inr(s.total_value) : "–";
+      $("positions").innerHTML = (s.positions || []).map(p => `<tr class="border-t border-gray-800">
+        <td class="py-1 font-medium">${p.symbol}</td><td class="text-right">${p.qty}</td>
+        <td class="text-right">${inr(p.entry)}</td><td class="text-right">${inr(p.ltp)}</td>
+        <td class="text-right ${p.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${inr(p.pnl)}</td></tr>`).join("") ||
+        '<tr><td colspan="5" class="text-gray-600 py-2 text-xs">No open positions</td></tr>';
+      $("trades").innerHTML = (s.trades || []).map(t => `<tr class="border-t border-gray-800">
+        <td class="py-1 text-gray-500">${t.time}</td>
+        <td class="${t.side === 'BUY' ? 'text-green-400' : 'text-red-400'} font-semibold">${t.side}</td>
+        <td class="font-medium">${t.symbol}</td><td class="text-right">${t.qty}</td>
+        <td class="text-right">${inr(t.price)}</td>
+        <td class="text-right ${t.pnl == null ? 'text-gray-600' : (t.pnl >= 0 ? 'text-green-400' : 'text-red-400')}">${t.pnl == null ? "–" : inr(t.pnl)}</td></tr>`).join("") ||
+        '<tr><td colspan="6" class="text-gray-600 py-2 text-xs">No trades yet</td></tr>';
+    }
+
+    async function tick() {
+      const r = await fetch("/api/status");
+      render(await r.json());
+    }
+
+    $("btn-toggle").onclick = async () => {
+      const running = ($("btn-toggle").textContent === "Stop Bot");
+      const url = running ? "/api/stop?" : "/api/start?";
+      const sim = running ? "" : "&sim=1";
+      const r = await fetch(url + new Date().getTime() + sim, { method: "POST" });
+      render(await r.json());
+    };
+
+    tick(); setInterval(tick, 2000);
+  </script>
+</body>
+</html>
