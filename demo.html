@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>India Trade Bot — Demo (in-browser simulation)</title>
+<style>
+  body { font-family: ui-sans-serif, system-ui, sans-serif; background:#0d1117; color:#e6edf3; margin:0; padding:24px; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color:#8b949e; font-size: 13px; margin-bottom: 20px; }
+  .card { background:#161b22; border:1px solid #21262d; border-radius:8px; padding:16px; margin-bottom:16px; }
+  .btn { padding:8px 16px; border:0; border-radius:6px; font-weight:600; font-size:14px; cursor:pointer; color:#fff; }
+  .btn.start { background:#238636; } .btn.stop { background:#b62324; }
+  #status { color:#8b949e; font-size:14px; margin-left:12px; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:16px 0; }
+  .stat .lbl { font-size:12px; color:#8b949e; }
+  .stat .val { font-size:20px; font-weight:600; margin-top:2px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; font-size:11px; color:#8b949e; padding-bottom:6px; font-weight:500; }
+  th.r, td.r { text-align:right; }
+  td { padding:5px 0; border-top:1px solid #21262d; }
+  .pos { color:#3fb950; } .neg { color:#f85149; } .muted { color:#8b949e; }
+  h2 { font-size:12px; color:#8b949e; font-weight:500; margin:0 0 8px; }
+  .foot { font-size:11px; color:#6e7681; margin-top:12px; }
+  .foot a { color:#6e7681; }
+  a.plain { color:#58a6ff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🇮🇳 India Trade Bot <span style="color:#8b949e;font-size:15px;">(NSE · Paper · in-browser demo)</span></h1>
+  <p class="sub">Same strategy as the Flask app — long-only MA(9/21) crossover on a NIFTY 50 watchlist — simulated entirely in your browser. GitHub Pages-ready: no Python, no server.</p>
+
+  <div class="card" style="display:flex;align-items:center;gap:12px;">
+    <button id="btn" class="btn start">Start Bot</button>
+    <span id="status">Standby</span>
+    <span style="margin-left:auto;font-size:11px;border:1px solid #30363d;border-radius:12px;padding:3px 10px;" class="muted">Simulated session</span>
+  </div>
+
+  <div class="grid">
+    <div class="card stat" style="margin:0;"><div class="lbl">Cash</div><div class="val" id="cash">–</div></div>
+    <div class="card stat" style="margin:0;"><div class="lbl">Unrealised P&amp;L</div><div class="val" id="upnl">–</div></div>
+    <div class="card stat" style="margin:0;"><div class="lbl">Total Value</div><div class="val" id="tv">–</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Open Positions</h2>
+    <table><thead><tr>
+      <th>Symbol</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">LTP</th><th class="r">P&amp;L</th>
+    </tr></thead><tbody id="positions"></tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>Trade Log</h2>
+    <table><thead><tr>
+      <th>Time</th><th>Side</th><th>Symbol</th><th class="r">Qty</th><th class="r">Price</th><th class="r">P&amp;L</th>
+    </tr></thead><tbody id="trades"></tbody></table>
+  </div>
+
+  <p class="foot">Educational demo · simulated prices only · no orders placed · NSE hours 09:15–15:30 IST · <a class="plain" href="https://github.com/abhi1010-sys/-trading-bo">source repo</a></p>
+</div>
+
+<script>
+const SYMBOLS = ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","SBIN","ITC","LT","BHARTIARTL","HINDUNILVR"];
+const QTY = 5;
+let cash = 1000000, positions = {}, trades = [], prices = {}, history = {}, running = false, timer = null;
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+SYMBOLS.forEach(s => {
+  prices[s] = rnd(200, 3200);
+  history[s] = [];
+  for (let i = 0; i < 26; i++) {
+    prices[s] = Math.max(50, prices[s] * rnd(0.99, 1.01));
+    history[s].push(prices[s]);
+  }
+});
+
+const inr = v => "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const $ = id => document.getElementById(id);
+
+function signal(s) {
+  const h = history[s];
+  if (h.length < 22) return 0;
+  const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const fma = avg(h.slice(-9)), sma = avg(h.slice(-21));
+  const pf = avg(h.slice(-10, -1)), ps = avg(h.slice(-22, -1));
+  if (pf <= ps && fma > sma) return 1;
+  if (pf >= ps && fma < sma) return -1;
+  return 0;
+}
+
+function mkLog(side, sym, px, pnl) {
+  const d = { time: new Date().toLocaleTimeString("en-IN", { hour12: false }), side, symbol: sym, qty: QTY, price: px };
+  if (pnl !== undefined) d.pnl = pnl;
+  return d;
+}
+
+function step() {
+  SYMBOLS.forEach(s => {
+    prices[s] = Math.max(50, prices[s] * rnd(0.99, 1.01));
+    history[s].push(prices[s]);
+    if (history[s].length > 100) history[s].shift();
+  });
+  SYMBOLS.forEach(s => {
+    const sig = signal(s);
+    if (sig === -1 && positions[s]) {
+      const p = positions[s];
+      const pnl = (prices[s] - p.entry) * p.qty;
+      cash += p.qty * prices[s];
+      trades.push(mkLog("SELL", s, prices[s], pnl));
+      delete positions[s];
+    }
+    if (sig === 1 && !positions[s]) {
+      const cost = QTY * prices[s];
+      if (cost <= cash) {
+        cash -= cost;
+        positions[s] = { qty: QTY, entry: prices[s] };
+        trades.push(mkLog("BUY", s, prices[s]));
+      }
+    }
+  });
+  render();
+}
+
+function render() {
+  const btn = $("btn");
+  btn.textContent = running ? "Stop Bot" : "Start Bot";
+  btn.className = running ? "btn stop" : "btn start";
+  $("status").textContent = running ? "Running" : "Standby";
+  let invested = 0, upnl = 0;
+  const rows = [];
+  for (const s of Object.keys(positions)) {
+    const p = positions[s], ltp = prices[s];
+    invested += p.qty * p.entry;
+    upnl += (ltp - p.entry) * p.qty;
+    rows.push(`<tr><td>${s}</td><td class="r">${p.qty}</td><td class="r">${inr(p.entry)}</td><td class="r">${inr(ltp)}</td><td class="r ${ltp >= p.entry ? "pos" : "neg"}">${inr((ltp - p.entry) * p.qty)}</td></tr>`);
+  }
+  $("positions").innerHTML = rows.join("") || '<tr><td colspan="5" class="muted">No open positions</td></tr>';
+  $("trades").innerHTML = trades.slice(-30).reverse().map(t =>
+    `<tr><td class="muted">${t.time}</td><td class="${t.side === "BUY" ? "pos" : "neg"}" style="font-weight:600;">${t.side}</td><td>${t.symbol}</td><td class="r">${t.qty}</td><td class="r">${inr(t.price)}</td><td class="r ${t.pnl === undefined ? "muted" : t.pnl >= 0 ? "pos" : "neg"}">${t.pnl === undefined ? "–" : inr(t.pnl)}</td></tr>`
+  ).join("") || '<tr><td colspan="6" class="muted">No trades yet — press Start Bot</td></tr>';
+  $("cash").textContent = inr(cash);
+  $("upnl").textContent = inr(upnl);
+  $("upnl").className = "val " + (upnl >= 0 ? "pos" : "neg");
+  $("tv").textContent = inr(cash + invested);
+}
+
+$("btn").onclick = () => {
+  running = !running;
+  if (running) timer = setInterval(step, 1000); else clearInterval(timer);
+  render();
+};
+
+render();
+</script>
+</body>
+</html>
