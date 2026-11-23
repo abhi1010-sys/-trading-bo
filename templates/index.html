@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>India Trade Bot</title>
+  <title>India Trade Bot — Institutional Model</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { font-family: ui-sans-serif, system-ui, sans-serif; background: #0d1117; }
@@ -13,48 +13,61 @@
 <body class="text-gray-200 p-6">
   <div class="max-w-6xl mx-auto">
     <header class="mb-6">
-      <h1 class="text-2xl font-bold">🇮🇳 India Trade Bot <span class="text-gray-500 text-base">(NSE + BSE · Suggestions)</span></h1>
-      <p class="text-gray-500 text-sm mt-1">Real-time MA-crossover suggestions across Nifty 50, Nifty Next 100 & BSE midcaps · orders are placed manually by you</p>
+      <h1 class="text-2xl font-bold">🇮🇳 India Trade Bot <span class="text-gray-500 text-base">(NSE + BSE · Institutional Model Book)</span></h1>
+      <p class="text-gray-500 text-sm mt-1">₹25 Cr simulated fund · MA(20/100) trend model · 0.5% risk sizing · 4% position cap · manual execution</p>
     </header>
 
     <div class="card rounded-lg p-4 mb-4 flex items-center gap-4">
-      <button id="btn-toggle" class="px-4 py-2 rounded bg-green-600 hover:bg-green-500 font-semibold text-sm">Start Scanner</button>
+      <button id="btn-toggle" class="px-4 py-2 rounded bg-green-600 hover:bg-green-500 font-semibold text-sm">Run Fund</button>
       <span id="status" class="text-sm text-gray-400">Standby</span>
       <span class="ml-auto text-xs px-2 py-1 rounded border border-gray-700" id="badge-open">Market</span>
-      <span class="text-xs px-2 py-1 rounded border border-gray-700 text-yellow-400" title="This bot never places orders">Suggestions only</span>
+      <span class="text-xs px-2 py-1 rounded border border-gray-700 text-yellow-400" title="Simulated model book — no real orders">Model book only</span>
     </div>
 
     <div class="grid grid-cols-4 gap-4 mb-4">
-      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Universe</div><div id="univ" class="text-xl font-semibold">–</div></div>
-      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">NSE symbols</div><div id="nse" class="text-xl font-semibold">–</div></div>
-      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">BSE symbols</div><div id="bse" class="text-xl font-semibold">–</div></div>
-      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Bars polled</div><div id="bars" class="text-xl font-semibold">–</div></div>
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">NAV</div><div id="nav" class="text-xl font-semibold">–</div></div>
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Invested</div><div id="inv" class="text-xl font-semibold">–</div></div>
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Exposure</div><div id="exp" class="text-xl font-semibold">–</div></div>
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Cash</div><div id="cash" class="text-xl font-semibold">–</div></div>
     </div>
 
     <div class="card rounded-lg p-4 mb-4">
-      <div class="text-xs text-gray-500 mb-2">Signals — Entry / Exit <span class="text-gray-600">(SL 1% · Target 2% · NSE/BSE session 09:15–15:30 IST)</span></div>
+      <div class="text-xs text-gray-500 mb-2">Model Book — Entry / Exit <span class="text-gray-600">(upstream signals: SL 5% · Target 15% · suggested sizes in shares)</span></div>
       <table class="w-full text-sm"><thead class="text-gray-500 text-xs"><tr>
-        <th class="text-left pb-1">Symbol</th><th class="text-left">Action</th><th class="text-right">LTP</th><th class="text-right">Entry</th><th class="text-right">Stop&nbsp;Loss</th><th class="text-right">Target</th><th class="text-left">Basis</th>
+        <th class="text-left pb-1">Symbol</th><th class="text-left">Action</th><th class="text-right">LTP</th><th class="text-right">Entry</th><th class="text-right">Stop&nbsp;Loss</th><th class="text-right">Target</th><th class="text-right">Suggested&nbsp;Qty</th><th class="text-left">Basis</th>
       </tr></thead><tbody id="signals"></tbody></table>
     </div>
 
-    <footer class="mt-6 text-[11px] text-gray-600">Educational prototype · suggestions are not investment advice · execute manually at your own risk · <a class="underline" href="https://www.nseindia.com" target="_blank" rel="noopener">NSE</a> · <a class="underline" href="https://www.bseindia.com" target="_blank" rel="noopener">BSE</a></footer>
+    <div class="card rounded-lg p-4 mb-4">
+      <div class="text-xs text-gray-500 mb-2">Model Book — Positions</div>
+      <table class="w-full text-sm"><thead class="text-gray-500 text-xs"><tr>
+        <th class="text-left pb-1">Symbol</th><th class="text-right">Qty</th><th class="text-right">Weight</th><th class="text-right">Entry</th><th class="text-right">LTP</th><th class="text-right">P&amp;L</th><th class="text-right">Stop</th><th class="text-right">Target</th>
+      </tr></thead><tbody id="positions"></tbody></table>
+    </div>
+
+    <div class="card rounded-lg p-4 mb-4">
+      <div class="text-xs text-gray-500 mb-2">Model Fills</div>
+      <table class="w-full text-sm"><thead class="text-gray-500 text-xs"><tr>
+        <th class="text-left pb-1">Time</th><th class="text-left">Side</th><th class="text-left">Symbol</th><th class="text-right">Qty</th><th class="text-right">Price</th><th class="text-right">P&amp;L</th><th class="text-left">Reason</th>
+      </tr></thead><tbody id="trades"></tbody></table>
+    </div>
+
+    <footer class="mt-6 text-[11px] text-gray-600">Educational prototype · simulated model book, not investment advice · real orders are never placed · SEBI-regulated activity · <a class="underline" href="https://www.nseindia.com" target="_blank" rel="noopener">NSE</a> · <a class="underline" href="https://www.bseindia.com" target="_blank" rel="noopener">BSE</a></footer>
   </div>
 
   <script>
     const $ = id => document.getElementById(id);
-    const inr = v => "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    const inr = v => "₹" + Math.round(Number(v)).toLocaleString("en-IN");
 
     function displayName(r) {
-      const tag = r.exchange || (r.symbol || "").split(":")[0] || "NSE";
       const short = (r.symbol || "").includes(":") ? (r.symbol || "").split(":")[1] : (r.symbol || "");
-      return short + ' <span class="text-gray-600 text-xs">' + tag + "</span>";
+      return short + ' <span class="text-gray-600 text-xs">' + (r.exchange || "") + "</span>";
     }
 
     function render(s) {
-      $("status").textContent = s.running ? "Scanning" : (s.status || "Standby");
+      $("status").textContent = s.running ? "Managing book" : (s.status || "Standby");
       const btn = $("btn-toggle");
-      btn.textContent = s.running ? "Stop Scanner" : "Start Scanner";
+      btn.textContent = s.running ? "Stop Fund" : "Run Fund";
       btn.className = s.running
         ? "px-4 py-2 rounded bg-red-600 hover:bg-red-500 font-semibold text-sm"
         : "px-4 py-2 rounded bg-green-600 hover:bg-green-500 font-semibold text-sm";
@@ -62,10 +75,13 @@
       ob.textContent = s.market_open ? "Market Open" : "Market Closed";
       ob.className = "text-xs px-2 py-1 rounded border " +
         (s.market_open ? "border-green-700 text-green-400" : "border-gray-700 text-gray-500");
-      $("univ").textContent = s.universe_size != null ? s.universe_size : "–";
-      $("nse").textContent = s.by_exchange ? (s.by_exchange.NSE || 0) : "–";
-      $("bse").textContent = s.by_exchange ? (s.by_exchange.BSE || 0) : "–";
-      $("bars").textContent = s.bars_polled != null ? s.bars_polled.toLocaleString("en-IN") : "–";
+
+      const pnl = s.nav != null && s.cash != null ? s.nav - 250000000 : null;
+      $("nav").innerHTML = s.nav != null ? inr(s.nav) + (pnl != null ? ` <span class="text-xs font-normal ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}">(${pnl >= 0 ? '+' : ''}${inr(pnl).slice(0, -3).replace('₹','')}${pnl >= 0 ? '' : ''} ${pnl >= 0 ? '▲' : '▼'})</span>` : "") : "–";
+      $("inv").textContent = s.invested != null ? inr(s.invested) : "–";
+      $("exp").textContent = s.exposure != null ? (s.exposure * 100).toFixed(1) + "%" : "–";
+      $("cash").textContent = s.cash != null ? inr(s.cash) : "–";
+
       const ACT = {"BUY": "text-green-400", "EXIT": "text-red-400", "HOLD": "text-yellow-400", "WAIT": "text-gray-600"};
       $("signals").innerHTML = (s.signals || []).map(r => `<tr class="border-t border-gray-800">
         <td class="py-1 font-medium">${displayName(r)}</td>
@@ -74,7 +90,29 @@
         <td class="text-right">${inr(r.entry)}</td>
         <td class="text-right text-red-400">${inr(r.stop_loss)}</td>
         <td class="text-right text-green-400">${inr(r.target)}</td>
+        <td class="text-right text-gray-400">${(r.suggested_qty || 0).toLocaleString("en-IN")}</td>
         <td class="text-left text-gray-500 text-xs">${r.basis}</td></tr>`).join("");
+
+      $("positions").innerHTML = (s.positions || []).map(p => `<tr class="border-t border-gray-800">
+        <td class="py-1 font-medium">${displayName(p)}</td>
+        <td class="text-right">${p.qty.toLocaleString("en-IN")}</td>
+        <td class="text-right">${(p.weight * 100).toFixed(2)}%</td>
+        <td class="text-right">${inr(p.entry)}</td>
+        <td class="text-right">${inr(p.ltp)}</td>
+        <td class="text-right ${p.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${inr(p.pnl)}</td>
+        <td class="text-right text-red-400">${inr(p.stop_loss)}</td>
+        <td class="text-right text-green-400">${inr(p.target)}</td></tr>`).join("") ||
+        '<tr><td colspan="8" class="text-gray-600 py-2 text-xs">No model positions — waiting for trend crossings</td></tr>';
+
+      $("trades").innerHTML = (s.trades || []).map(t => `<tr class="border-t border-gray-800">
+        <td class="py-1 text-gray-500">${t.time}</td>
+        <td class="${t.side === 'BUY' ? 'text-green-400' : 'text-red-400'} font-semibold">${t.side}</td>
+        <td class="font-medium">${t.symbol} <span class="text-gray-600 text-xs">${t.exchange || ''}</span></td>
+        <td class="text-right">${t.qty.toLocaleString("en-IN")}</td>
+        <td class="text-right">${inr(t.price)}</td>
+        <td class="text-right ${t.pnl == null ? 'text-gray-600' : (t.pnl >= 0 ? 'text-green-400' : 'text-red-400')}">${t.pnl == null ? "–" : inr(t.pnl)}</td>
+        <td class="text-left text-gray-500 text-xs">${t.reason || ''}</td></tr>`).join("") ||
+        '<tr><td colspan="7" class="text-gray-600 py-2 text-xs">No model fills yet</td></tr>';
     }
 
     async function tick() {
@@ -83,7 +121,7 @@
     }
 
     $("btn-toggle").onclick = async () => {
-      const running = ($("btn-toggle").textContent === "Stop Scanner");
+      const running = ($("btn-toggle").textContent === "Stop Fund");
       const url = running ? "/api/stop?" : "/api/start?";
       const sim = running ? "" : "&sim=1";
       const r = await fetch(url + new Date().getTime() + sim, { method: "POST" });

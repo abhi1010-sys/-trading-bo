@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>India Trade Bot — Demo (NSE + BSE, in-browser)</title>
+<title>India Trade Bot — Institutional Model (NSE + BSE, in-browser)</title>
 <style>
   body { font-family: ui-sans-serif, system-ui, sans-serif; background:#0d1117; color:#e6edf3; margin:0; padding:24px; }
   .wrap { max-width: 1100px; margin: 0 auto; }
@@ -30,34 +30,44 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🇮🇳 India Trade Bot <span style="color:#8b949e;font-size:15px;">(NSE + BSE · Suggestions · in-browser demo)</span></h1>
-  <p class="sub">Real-time MA(9/21) crossover suggestions with entry, stop-loss and target across a sample NSE + BSE universe — simulated entirely in your browser. This demo never places or fills orders.</p>
+  <h1>🇮🇳 India Trade Bot <span style="color:#8b949e;font-size:15px;">(NSE + BSE · Institutional Model Book · in-browser)</span></h1>
+  <p class="sub">A ₹25 Cr simulated fund: MA(20/100) trend entries, 0.5%-of-NAV risk sizing, 4% position cap, 20% cash floor, 5% stop-losses, 15% targets. Model fills only — nothing real is ever ordered.</p>
 
   <div class="card" style="display:flex;align-items:center;gap:12px;">
-    <button id="btn" class="btn start">Start Scanner</button>
+    <button id="btn" class="btn start">Run Fund</button>
     <span id="status">Standby</span>
-    <span style="margin-left:auto;" class="pill muted">Suggestions only</span>
-    <span class="pill" id="mkt" style="border-color:#30363d;">Simulated session</span>
+    <span style="margin-left:auto;" class="pill muted">Model book only</span>
+    <span class="pill" id="mkt" style="border-color:#30363d;">Session paused</span>
   </div>
 
   <div class="grid">
-    <div class="card stat" style="margin:0;"><div class="lbl">Universe</div><div class="val" id="univ">–</div></div>
-    <div class="card stat" style="margin:0;"><div class="lbl">NSE symbols</div><div class="val" id="nse">–</div></div>
-    <div class="card stat" style="margin:0;"><div class="lbl">BSE symbols</div><div class="val" id="bse">–</div></div>
-    <div class="card stat" style="margin:0;"><div class="lbl">Bars simulated</div><div class="val" id="bars">–</div></div>
+    <div class="card stat" style="margin:0;"><div class="lbl">NAV</div><div class="val" id="nav">–</div></div>
+    <div class="card stat" style="margin:0;"><div class="lbl">Invested</div><div class="val" id="inv">–</div></div>
+    <div class="card stat" style="margin:0;"><div class="lbl">Exposure</div><div class="val" id="exp">–</div></div>
+    <div class="card stat" style="margin:0;"><div class="lbl">Cash</div><div class="val" id="cash">–</div></div>
   </div>
 
   <div class="card">
-    <h2>Signals — Entry / Exit <span style="font-weight:400;">(SL 1% · Target 2% · NSE/BSE session 09:15–15:30 IST)</span></h2>
+    <h2>Model Book — Positions</h2>
     <table><thead><tr>
-      <th>Symbol</th><th>Action</th><th class="r">LTP</th><th class="r">Entry</th><th class="r">Stop&nbsp;Loss</th><th class="r">Target</th><th>Basis</th>
-    </tr></thead><tbody id="signals"></tbody></table>
+      <th>Symbol</th><th class="r">Qty</th><th class="r">Weight</th><th class="r">Entry</th><th class="r">LTP</th><th class="r">P&amp;L</th><th class="r">Stop</th><th class="r">Target</th>
+    </tr></thead><tbody id="positions"></tbody></table>
   </div>
 
-  <p class="foot">Educational demo · simulated prices · suggestions are not investment advice · execute manually at your own risk · <a class="plain" href="https://github.com/abhi1010-sys/-trading-bo">source repo</a></p>
+  <div class="card">
+    <h2>Model Fills</h2>
+    <table><thead><tr>
+      <th>Time</th><th>Side</th><th>Symbol</th><th class="r">Qty</th><th class="r">Price</th><th class="r">P&amp;L</th><th>Reason</th>
+    </tr></thead><tbody id="trades"></tbody></table>
+  </div>
+
+  <p class="foot">Educational demo · simulated prices & fills · not investment advice · real orders are never placed · SEBI-regulated activity · <a class="plain" href="https://github.com/abhi1010-sys/-trading-bo">source repo</a></p>
 </div>
 
 <script>
+const NAV_START = 250000000, FAST = 20, SLOW = 100;
+const RISK_PCT = 0.005, STOP_PCT = 0.05, TARGET_PCT = 0.15;
+const MAX_POSITIONS = 25, MAX_WEIGHT = 0.04, MIN_CASH_PCT = 0.20;
 const UNIVERSE = [
   "NSE:RELIANCE","NSE:TCS","NSE:INFY","NSE:HDFCBANK","NSE:ICICIBANK","NSE:SBIN",
   "NSE:ITC","NSE:LT","NSE:BHARTIARTL","NSE:HINDUNILVR","NSE:TATAMOTORS","NSE:MARUTI",
@@ -66,66 +76,110 @@ const UNIVERSE = [
   "BSE:CESC","BSE:CUB","BSE:GESHIP","BSE:HONAUT","BSE:KPRMILL","BSE:NAVA",
   "BSE:NCC","BSE:PERSISTENT","BSE:SONACOMS","BSE:THERMAX"
 ];
-let bars = 0, prices = {}, history = {}, running = false, timer = null;
+let cash = NAV_START, positions = {}, trades = [], bars = 0, running = false, timer = null;
+let prices = {}, history = {};
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 UNIVERSE.forEach(s => {
   prices[s] = rnd(200, 3200);
   history[s] = [];
-  for (let i = 0; i < 26; i++) {
-    prices[s] = Math.max(50, prices[s] * rnd(0.99, 1.01));
+  for (let i = 0; i < SLOW + 10; i++) {
+    prices[s] = Math.max(50, prices[s] * rnd(0.995, 1.005));
     history[s].push(prices[s]);
   }
 });
 
-const inr = v => "₹" + Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const inr = v => "₹" + Math.round(Number(v)).toLocaleString("en-IN");
 const $ = id => document.getElementById(id);
+const nav = () => cash + Object.entries(positions).reduce((a, [s, p]) => a + p.qty * prices[s], 0);
 
 function signal(s) {
   const h = history[s];
-  if (h.length < 22) return 0;
-  const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
-  const fma = avg(h.slice(-9)), sma = avg(h.slice(-21));
-  const pf = avg(h.slice(-10, -1)), ps = avg(h.slice(-22, -1));
+  if (h.length < SLOW) return 0;
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const fma = avg(h.slice(-FAST)), sma = avg(h.slice(-SLOW));
+  const pf = avg(h.slice(-FAST - 1, -1)), ps = avg(h.slice(-SLOW - 1, -1));
   if (pf <= ps && fma > sma) return 1;
   if (pf >= ps && fma < sma) return -1;
   return 0;
 }
 
+function sizing(entry) {
+  const n = nav();
+  const stopDist = entry * STOP_PCT;
+  let qty = Math.floor((n * RISK_PCT) / stopDist);
+  qty = Math.min(qty, Math.floor(n * MAX_WEIGHT / entry));
+  return Math.max(qty, 0);
+}
+
+function mkLog(side, key, qty, px, pnl, reason) {
+  const [exch, name] = key.split(":");
+  const d = { time: new Date().toLocaleTimeString("en-IN", { hour12: false }), side, exch, name, qty, price: px };
+  if (pnl !== undefined) d.pnl = pnl;
+  if (reason) d.reason = reason;
+  return d;
+}
+
 function step() {
   UNIVERSE.forEach(s => {
-    prices[s] = Math.max(50, prices[s] * rnd(0.99, 1.01));
+    prices[s] = Math.max(50, prices[s] * rnd(0.995, 1.005));
     history[s].push(prices[s]);
-    if (history[s].length > 100) history[s].shift();
+    if (history[s].length > SLOW * 3) history[s].shift();
   });
   bars++;
+  for (const s of Object.keys(positions)) {
+    const p = positions[s];
+    if (prices[s] <= p.entry * (1 - STOP_PCT)) {
+      const pnl = (prices[s] - p.entry) * p.qty;
+      cash += p.qty * prices[s];
+      trades.push(mkLog("SELL", s, p.qty, prices[s], pnl, "stop-loss"));
+      delete positions[s];
+    } else if (signal(s) === -1) {
+      const pnl = (prices[s] - p.entry) * p.qty;
+      cash += p.qty * prices[s];
+      trades.push(mkLog("SELL", s, p.qty, prices[s], pnl, "trend break"));
+      delete positions[s];
+    }
+  }
+  for (const s of UNIVERSE) {
+    if (!positions[s] && signal(s) === 1) {
+      const qty = sizing(prices[s]);
+      const cost = qty * prices[s];
+      if (qty >= 1 && cost <= cash && cash - cost >= nav() * MIN_CASH_PCT && Object.keys(positions).length < MAX_POSITIONS) {
+        cash -= cost;
+        positions[s] = { qty, entry: prices[s] };
+        trades.push(mkLog("BUY", s, qty, prices[s]));
+      }
+    }
+  }
   render();
 }
 
 function render() {
   const btn = $("btn");
-  btn.textContent = running ? "Stop Scanner" : "Start Scanner";
+  btn.textContent = running ? "Stop Fund" : "Run Fund";
   btn.className = running ? "btn stop" : "btn start";
-  $("status").textContent = running ? "Scanning" : "Standby";
+  $("status").textContent = running ? "Managing book" : "Standby";
   $("mkt").textContent = running ? "Session live" : "Session paused";
 
-  const counts = { NSE: 0, BSE: 0 };
-  UNIVERSE.forEach(s => counts[s.split(":")[0]]++);
-  $("univ").textContent = UNIVERSE.length;
-  $("nse").textContent = counts.NSE;
-  $("bse").textContent = counts.BSE;
-  $("bars").textContent = bars.toLocaleString("en-IN");
+  const n = nav();
+  const pnl = n - NAV_START;
+  $("nav").innerHTML = inr(n) + ` <span class="${pnl >= 0 ? "pos" : "neg"}" style="font-size:12px;font-weight:400;">${pnl >= 0 ? "▲" : "▼"} ${inr(Math.abs(pnl)).slice(1)}</span>`;
+  const invested = Object.entries(positions).reduce((a, [s, p]) => a + p.qty * prices[s], 0);
+  $("inv").textContent = inr(invested);
+  $("exp").textContent = (invested / n * 100).toFixed(1) + "%";
+  $("cash").textContent = inr(cash);
 
-  const actCls = { BUY: "pos", EXIT: "neg", HOLD: "muted" };
-  const rows = UNIVERSE.map(s => {
-    const sig = signal(s);
-    const action = sig === 1 ? "BUY" : sig === -1 ? "EXIT" : "HOLD";
-    const h = history[s], avg = a => a.reduce((x, y) => x + y, 0) / a.length;
-    const exch = s.split(":")[0], name = s.split(":")[1];
-    const basis = h.length >= 22 ? `MA9 ${avg(h.slice(-9)).toFixed(1)} vs MA21 ${avg(h.slice(-21)).toFixed(1)}` : `warming up (${h.length}/21 bars)`;
-    return `<tr><td>${name} <span class="tag">${exch}</span></td><td style="font-weight:600;" class="${actCls[action]}">${action}</td><td class="r">${inr(prices[s])}</td><td class="r">${inr(prices[s])}</td><td class="r neg">${inr(prices[s] * 0.99)}</td><td class="r pos">${inr(prices[s] * 1.02)}</td><td class="muted" style="font-size:12px;">${basis}</td></tr>`;
-  }).sort((a, b) => 0).join("");
-  $("signals").innerHTML = rows;
+  const rows = Object.entries(positions).map(([s, p]) => {
+    const [exch, name] = s.split(":");
+    const upnl = (prices[s] - p.entry) * p.qty;
+    return `<tr><td>${name} <span class="tag">${exch}</span></td><td class="r">${p.qty.toLocaleString("en-IN")}</td><td class="r">${(p.qty * prices[s] / n * 100).toFixed(2)}%</td><td class="r">${inr(p.entry)}</td><td class="r">${inr(prices[s])}</td><td class="r ${upnl >= 0 ? "pos" : "neg"}">${inr(upnl)}</td><td class="r neg">${inr(p.entry * (1 - STOP_PCT))}</td><td class="r pos">${inr(p.entry * (1 + TARGET_PCT))}</td></tr>`;
+  }).sort((a, b) => parseFloat(b.match(/([\d.]+)%/) > parseFloat(a.match(/([\d.]+)%/) ? 1 : 0) ? 1 : 0)).join("");
+  $("positions").innerHTML = rows || '<tr><td colspan="8" class="muted">No model positions — waiting for trend crossings</td></tr>';
+
+  $("trades").innerHTML = trades.slice(-40).reverse().map(t =>
+    `<tr><td class="muted">${t.time}</td><td style="font-weight:600;" class="${t.side === "BUY" ? "pos" : "neg"}">${t.side}</td><td>${t.name} <span class="tag">${t.exch}</span></td><td class="r">${t.qty.toLocaleString("en-IN")}</td><td class="r">${inr(t.price)}</td><td class="r ${t.pnl === undefined ? "muted" : t.pnl >= 0 ? "pos" : "neg"}">${t.pnl === undefined ? "–" : inr(t.pnl)}</td><td class="muted" style="font-size:12px;">${t.reason || ""}</td></tr>`
+  ).join("") || '<tr><td colspan="7" class="muted">No model fills yet — press Run Fund</td></tr>';
 }
 
 $("btn").onclick = () => {
