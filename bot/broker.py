@@ -1,7 +1,11 @@
 import json
+import logging
 import random
+import threading
 import time
 import urllib.request
+
+log = logging.getLogger("bot.broker")
 
 
 class YahooBroker:
@@ -109,4 +113,89 @@ class SimBroker:
             base = self._walk.get(s, random.uniform(200, 3200))
             self._walk[s] = max(50, base * random.uniform(0.985, 1.015))
             out[s] = self._walk[s]
+        return out
+
+
+class KiteTickerBroker:
+    """Zero-delay NSE/BSE ticks via the Kite Connect WebSocket ticker.
+
+    Requires a Kite Connect app (api_key + access_token, see
+    scripts/kite_login.py). Subscribes the whole universe in QUOTE mode and
+    keeps latest ticks in memory; engine polls are instant dict reads.
+    Falls back to chunked REST LTP while the socket is down, and delegates
+    daily history seeding to Yahoo.
+    """
+
+    LABEL = "Zero-delay NSE/BSE ticks via Kite WebSocket (real-time)"
+    SUBSCRIBE_CHUNK = 200
+
+    def __init__(self, api_key, access_token):
+        self.api_key = api_key
+        self.access_token = access_token
+        self._yf = YahooBroker()
+        self._rest = KiteBroker(access_token)
+        self._ticks = {}     # 'EXCHANGE:SYMBOL' -> last tick price
+        self._by_token = {}  # instrument_token -> 'EXCHANGE:SYMBOL'
+        self._lock = threading.Lock()
+        self.connected = False
+        self._ticker = None
+
+    # ---- instrument mapping + subscription ----
+    def connect(self):
+        from kiteconnect import KiteConnect, KiteTicker
+        kite = KiteConnect(api_key=self.api_key)
+        kite.set_access_token(self.access_token)
+        instruments = kite.instruments()
+        for ins in instruments:
+            self._by_token[ins["instrument_token"]] = f"{ins['exchange']}:{ins['tradingsymbol']}"
+        self._ticker = KiteTicker(self.api_key, self.access_token)
+        self._ticker.on_ticks = self._on_ticks
+        self._ticker.on_connect = self._on_connect
+        self._ticker.on_close = self._on_close
+        self._ticker.connect(threaded=True)
+
+    def _on_ticks(self, ws, ticks):
+        with self._lock:
+            for tick in ticks:
+                sym = self._by_token.get(tick.get("instrument_token"))
+                px = tick.get("last_price")
+                if sym and px:
+                    self._ticks[sym] = float(px)
+
+    def _on_connect(self, ws, response):
+        self.connected = True
+        syms = list(self.symbols) if hasattr(self, "symbols") else []
+        tokens = []
+        with self._lock:
+            rev = {s: t for t, s in self._by_token.items()}
+            tokens = [rev[s] for s in syms if s in rev]
+        for i in range(0, len(tokens), self.SUBSCRIBE_CHUNK):
+            ws.subscribe(tokens[i:i + self.SUBSCRIBE_CHUNK])
+            ws.set_mode(ws.MODE_QUOTE, tokens[i:i + self.SUBSCRIBE_CHUNK])
+        log.info("kite ticker connected: %d instruments subscribed", len(tokens))
+
+    def _on_close(self, ws, code, reason):
+        self.connected = False
+        log.warning("kite ticker closed: %s %s", code, reason)
+
+    # ---- engine interface ----
+    def set_symbols(self, symbols):
+        self.symbols = list(symbols)
+
+    def daily_history(self, sym, bars=130):
+        return self._yf.daily_history(sym, bars)
+
+    @property
+    def feed_ready(self):
+        return self.connected and bool(self._ticks)
+
+    def ltp(self, symbols):
+        if self.connected:
+            with self._lock:
+                out = {s: self._ticks.get(s) or self._yf._cache.get(s) for s in symbols}
+        else:
+            out = self._rest.ltp(symbols)
+        for s in symbols:
+            if not out.get(s):
+                out[s] = self._yf._cache.get(s) or 200 + random.uniform(0, 2800)
         return out

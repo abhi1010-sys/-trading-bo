@@ -46,9 +46,12 @@ class InstitutionalEngine:
     def __init__(self, broker):
         self.broker = broker
         self.broker_label = getattr(broker, "LABEL", "unknown feed")
-        self.poll_seconds = 60 if self.broker_label.startswith("Live") else 10
+        label = self.broker_label.lower()
+        self.poll_seconds = 5 if "zero-delay" in label else (60 if label.startswith("live") else 10)
         self.warm = False
         self.symbols = list(UNIVERSE)
+        if hasattr(broker, "set_symbols"):
+            broker.set_symbols(self.symbols)
         self.params = dict(STRATEGY_PARAMS)
         self.cash = NAV_START
         self.positions = {}  # 'EXCHANGE:SYMBOL' -> {qty, entry}
@@ -229,6 +232,11 @@ class InstitutionalEngine:
             self.status = "MARKET CLOSED - levels on last close (NSE/BSE 09:15-15:30 IST, Mon-Fri)"
 
     def _run(self):
+        if hasattr(self.broker, "connect"):
+            try:
+                self.broker.connect()
+            except Exception:
+                log.exception("tick feed connect failed - falling back to REST polls")
         while self.running:
             try:
                 self.step()

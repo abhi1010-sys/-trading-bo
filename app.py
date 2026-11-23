@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request, render_template
 
 from bot.engine import init_engine, get_engine
-from bot.broker import KiteBroker, SimBroker, YahooBroker
+from bot.broker import KiteBroker, KiteTickerBroker, SimBroker, YahooBroker
 
 app = Flask(__name__)
 
@@ -10,6 +10,9 @@ def _broker_from(request):
     if request.args.get("sim") == "1":
         return SimBroker()
     at = request.args.get("kite_token")
+    key = request.args.get("kite_api_key")
+    if at and key:
+        return KiteTickerBroker(key, at)
     if at:
         return KiteBroker(at)
     return YahooBroker()
@@ -54,5 +57,7 @@ def stop():
 
 
 if __name__ == "__main__":
-    init_engine(YahooBroker())
+    import os
+    key, token = os.environ.get("KITE_API_KEY"), os.environ.get("KITE_ACCESS_TOKEN")
+    init_engine(KiteTickerBroker(key, token) if (key and token) else YahooBroker())
     app.run(host="127.0.0.1", port=5000, debug=True)
