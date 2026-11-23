@@ -1,4 +1,4 @@
-# Trading bot uses only PAPER_TRADING config.
-# To wire real orders later you must add broker credentials AND cash/margin
-# checkpointing; order placement is intentionally out of scope in this build.
-PAPER_TRADING = True
+# Suggestion-only bot: computes and displays NSE/BSE signals; no orders
+# are placed or simulated. Strategy constants live in bot/engine.py,
+# the tradable universe in bot/universe.py.
+SUGGESTIONS_ONLY = True

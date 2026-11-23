@@ -1,46 +1,42 @@
-"""Live paper-trading bot for the Indian market.
+"""Real-time suggestion engine for the Indian market (NSE + BSE).
 
-Trades NIFTY 50 stocks via a broker session (Zerodha Kite if credentials
-exist), deploying a fixed capital per trade. Runs a background thread that
-on each poll: refreshes prices through the broker adapter, evaluates the
-long-only MA(momentum) crossover strategy for each watchlist symbol and
-enters/exits paper positions accordingly. All fills are simulated at LTP
-(slippage-free) - real order placement is intentionally out of scope.
+Scans a tradable universe (see bot/universe.py) via a broker session
+(Zerodha Kite if credentials exist, simulated otherwise), evaluates a
+long-only MA(momentum) crossover per symbol and publishes actionable
+suggestions with entry, stop-loss and target levels. It does NOT place
+or simulate fills: execution is manual by design (suggestions only).
 """
 import logging
 import threading
 import time as _time
-from datetime import datetime
 
-from .market_hours import IST, now_ist, is_market_open
+from .market_hours import IST, is_market_open
+from .universe import UNIVERSE
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bot")
 
-# NIFTY 50 watchlist (sample)
-WATCHLIST = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK",
-             "SBIN", "ITC", "LT", "BHARTIARTL", "HINDUNILVR"]
-
-STRATEGY_PARAMS = {"fast": 9, "slow": 21, "qty": 5}
+STRATEGY_PARAMS = {"fast": 9, "slow": 21}
 STOP_PCT = 0.01   # 1% below entry (NSE intraday SL)
 TARGET_PCT = 0.02 # 2% above entry (1:2 risk-reward)
-CASH = 1_000_000.0  # paper capital
 
 _engine_lock = threading.Lock()
 
 
-class LiveTradingEngine:
-    """Manages watchlist data, paper positions and the bot loop."""
+def split_key(sym):
+    exch, _, short = sym.partition(":")
+    return (exch or "NSE"), (short or sym)
+
+
+class SuggestionEngine:
+    """Manages the universe data feed and per-poll trading suggestions."""
 
     def __init__(self, broker):
         self.broker = broker
-        self.symbols = list(WATCHLIST)
+        self.symbols = list(UNIVERSE)
         self.params = dict(STRATEGY_PARAMS)
-        self.cash = CASH
-        self.positions = {}  # symbol -> dict
-        self.trade_log = []
-        self.priced = {}  # symbol -> last price
-        self.history = {}  # symbol -> list of closes
+        self.priced = {}  # 'EXCHANGE:SYMBOL' -> last price
+        self.history = {}  # 'EXCHANGE:SYMBOL' -> list of closes
         self.running = False
         self.status = "STANDBY"
         self._thread = None
@@ -73,19 +69,19 @@ class LiveTradingEngine:
             return -1
         return 0
 
-    # ---------------- signals ----------------
+    # ---------------- suggestions ----------------
     def _decision(self, sym):
         px = self.priced.get(sym)
         if not px:
             return None
         sig = self._signal(sym)
-        in_pos = sym in self.positions
-        if in_pos:
-            action = "EXIT" if sig == -1 else "HOLD"
-            entry = self.positions[sym]["entry"]
+        exch, short = split_key(sym)
+        if sig == 1:
+            action = "BUY"
+        elif sig == -1:
+            action = "EXIT"
         else:
-            action = "BUY" if sig == 1 else "WAIT"
-            entry = px
+            action = "HOLD"
         fast, slow = self.params["fast"], self.params["slow"]
         h = self.history[sym]
         if len(h) >= slow:
@@ -95,69 +91,36 @@ class LiveTradingEngine:
         else:
             basis = f"warming up ({len(h)}/{slow} bars)"
         return {
-            "symbol": sym,
+            "exchange": exch,
+            "symbol": short,
             "action": action,
-            "in_position": in_pos,
             "price": round(px, 2),
-            "entry": round(entry, 2),
-            "stop_loss": round(entry * (1 - STOP_PCT), 2),
-            "target": round(entry * (1 + TARGET_PCT), 2),
+            "entry": round(px, 2),
+            "stop_loss": round(px * (1 - STOP_PCT), 2),
+            "target": round(px * (1 + TARGET_PCT), 2),
             "basis": basis,
         }
 
     def signals(self):
         rows = [self._decision(s) for s in self.symbols]
         rows = [r for r in rows if r]
-        priority = {"EXIT": 0, "BUY": 1, "HOLD": 2, "WAIT": 3}
-        return sorted(rows, key=lambda r: (priority.get(r["action"], 9), r["symbol"]))
-
-    # ---------------- orders (paper) ----------------
-    def _buy(self, sym, px):
-        qty = self.params["qty"]
-        cost = qty * px
-        if cost > self.cash:
-            return
-        self.cash -= cost
-        self.positions[sym] = {"qty": qty, "entry": px, "time": datetime.now(IST).isoformat()}
-        self.trade_log.append(self._log("BUY", sym, qty, px))
-        log.info("BUY %s x%d @ %.2f", sym, qty, px)
-
-    def _sell(self, sym, px):
-        pos = self.positions.pop(sym)
-        self.cash += pos["qty"] * px
-        self.trade_log.append(self._log("SELL", sym, pos["qty"], px,
-                                        pnl=(px - pos["entry"]) * pos["qty"]))
-        log.info("SELL %s x%d @ %.2f pnl %.2f", sym, pos["qty"], px,
-                 (px - pos["entry"]) * pos["qty"])
-
-    @staticmethod
-    def _log(side, sym, qty, px, pnl=None):
-        d = {"time": datetime.now(IST).strftime("%H:%M:%S"),
-             "side": side, "symbol": sym, "qty": qty, "price": round(px, 2)}
-        if pnl is not None:
-            d["pnl"] = round(pnl, 2)
-        return d
+        priority = {"BUY": 0, "EXIT": 1, "HOLD": 2, "WAIT": 3}
+        return sorted(rows, key=lambda r: (priority.get(r["action"], 9), r["exchange"], r["symbol"]))
 
     # ---------------- loop ----------------
     def step(self):
         if not is_market_open():
-            self.status = "MARKET CLOSED (NSE 09:15-15:30 IST, Mon-Fri)"
+            self.status = "MARKET CLOSED (NSE/BSE 09:15-15:30 IST, Mon-Fri)"
             return
         self.status = "SCANNING"
         self._refresh_prices()
-        for sym in list(self.positions):
-            if self._signal(sym) == -1:
-                self._sell(sym, self.priced[sym])
-        for sym in self.symbols:
-            if sym not in self.positions and self._signal(sym) == 1:
-                self._buy(sym, self.priced[sym])
 
     def _run(self):
         while self.running:
             try:
                 self.step()
             except Exception:
-                log.exception("bot step failed")
+                log.exception("engine step failed")
             _time.sleep(10)
 
     def start(self):
@@ -174,29 +137,26 @@ class LiveTradingEngine:
 
     # ---------------- reporting ----------------
     def snapshot(self):
-        holdings, invested, unrealised = [], 0.0, 0.0
-        for sym, p in self.positions.items():
-            px = self.priced.get(sym, p["entry"])
-            invested += p["qty"] * p["entry"]
-            unrealised += (px - p["entry"]) * p["qty"]
-            holdings.append({
-                "symbol": sym, "qty": p["qty"], "entry": round(p["entry"], 2),
-                "ltp": round(px, 2),
-                "pnl": round((px - p["entry"]) * p["qty"], 2),
-            })
+        polled = sum(len(h) for h in self.history.values())
         return {
             "running": self.running,
             "status": self.status,
             "market_open": is_market_open(),
-            "cash": round(self.cash, 2),
-            "invested": round(invested, 2),
-            "unrealised_pnl": round(unrealised, 2),
-            "total_value": round(self.cash + invested, 2),
-            "positions": holdings,
-            "trades": list(reversed(self.trade_log[-30:])),
+            "suggestions_only": True,
+            "universe_size": len(self.symbols),
+            "by_exchange": _count_by_exchange(self.symbols),
+            "bars_polled": polled,
             "quotes": {s: round(v, 2) for s, v in self.priced.items()},
             "signals": self.signals(),
         }
+
+
+def _count_by_exchange(symbols):
+    counts = {}
+    for s in symbols:
+        exch = split_key(s)[0]
+        counts[exch] = counts.get(exch, 0) + 1
+    return counts
 
 
 _engine = None
@@ -206,7 +166,7 @@ def init_engine(broker):
     global _engine
     with _engine_lock:
         if _engine is None:
-            _engine = LiveTradingEngine(broker)
+            _engine = SuggestionEngine(broker)
     return _engine
 
 

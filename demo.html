@@ -3,17 +3,17 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>India Trade Bot — Demo (in-browser simulation)</title>
+<title>India Trade Bot — Demo (NSE + BSE, in-browser)</title>
 <style>
   body { font-family: ui-sans-serif, system-ui, sans-serif; background:#0d1117; color:#e6edf3; margin:0; padding:24px; }
-  .wrap { max-width: 900px; margin: 0 auto; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
   h1 { font-size: 22px; margin: 0 0 4px; }
   .sub { color:#8b949e; font-size: 13px; margin-bottom: 20px; }
   .card { background:#161b22; border:1px solid #21262d; border-radius:8px; padding:16px; margin-bottom:16px; }
   .btn { padding:8px 16px; border:0; border-radius:6px; font-weight:600; font-size:14px; cursor:pointer; color:#fff; }
   .btn.start { background:#238636; } .btn.stop { background:#b62324; }
   #status { color:#8b949e; font-size:14px; margin-left:12px; }
-  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:16px 0; }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:16px 0; }
   .stat .lbl { font-size:12px; color:#8b949e; }
   .stat .val { font-size:20px; font-weight:600; margin-top:2px; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
@@ -23,58 +23,53 @@
   .pos { color:#3fb950; } .neg { color:#f85149; } .muted { color:#8b949e; }
   h2 { font-size:12px; color:#8b949e; font-weight:500; margin:0 0 8px; }
   .foot { font-size:11px; color:#6e7681; margin-top:12px; }
-  .foot a { color:#6e7681; }
+  .pill { font-size:11px; border:1px solid #30363d; border-radius:12px; padding:3px 10px; }
+  .tag { font-size:10px; color:#6e7681; }
   a.plain { color:#58a6ff; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>🇮🇳 India Trade Bot <span style="color:#8b949e;font-size:15px;">(NSE · Paper · in-browser demo)</span></h1>
-  <p class="sub">Same strategy as the Flask app — long-only MA(9/21) crossover on a NIFTY 50 watchlist — simulated entirely in your browser. GitHub Pages-ready: no Python, no server.</p>
+  <h1>🇮🇳 India Trade Bot <span style="color:#8b949e;font-size:15px;">(NSE + BSE · Suggestions · in-browser demo)</span></h1>
+  <p class="sub">Real-time MA(9/21) crossover suggestions with entry, stop-loss and target across a sample NSE + BSE universe — simulated entirely in your browser. This demo never places or fills orders.</p>
 
   <div class="card" style="display:flex;align-items:center;gap:12px;">
-    <button id="btn" class="btn start">Start Bot</button>
+    <button id="btn" class="btn start">Start Scanner</button>
     <span id="status">Standby</span>
-    <span style="margin-left:auto;font-size:11px;border:1px solid #30363d;border-radius:12px;padding:3px 10px;" class="muted">Simulated session</span>
+    <span style="margin-left:auto;" class="pill muted">Suggestions only</span>
+    <span class="pill" id="mkt" style="border-color:#30363d;">Simulated session</span>
   </div>
 
   <div class="grid">
-    <div class="card stat" style="margin:0;"><div class="lbl">Cash</div><div class="val" id="cash">–</div></div>
-    <div class="card stat" style="margin:0;"><div class="lbl">Unrealised P&amp;L</div><div class="val" id="upnl">–</div></div>
-    <div class="card stat" style="margin:0;"><div class="lbl">Total Value</div><div class="val" id="tv">–</div></div>
+    <div class="card stat" style="margin:0;"><div class="lbl">Universe</div><div class="val" id="univ">–</div></div>
+    <div class="card stat" style="margin:0;"><div class="lbl">NSE symbols</div><div class="val" id="nse">–</div></div>
+    <div class="card stat" style="margin:0;"><div class="lbl">BSE symbols</div><div class="val" id="bse">–</div></div>
+    <div class="card stat" style="margin:0;"><div class="lbl">Bars simulated</div><div class="val" id="bars">–</div></div>
   </div>
 
   <div class="card">
-    <h2>Signals — Entry / Exit <span style="font-weight:400;">(NIFTY50 watchlist · SL 1% · Target 2%)</span></h2>
+    <h2>Signals — Entry / Exit <span style="font-weight:400;">(SL 1% · Target 2% · NSE/BSE session 09:15–15:30 IST)</span></h2>
     <table><thead><tr>
       <th>Symbol</th><th>Action</th><th class="r">LTP</th><th class="r">Entry</th><th class="r">Stop&nbsp;Loss</th><th class="r">Target</th><th>Basis</th>
     </tr></thead><tbody id="signals"></tbody></table>
   </div>
 
-  <div class="card">
-    <h2>Open Positions</h2>
-    <table><thead><tr>
-      <th>Symbol</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">LTP</th><th class="r">P&amp;L</th>
-    </tr></thead><tbody id="positions"></tbody></table>
-  </div>
-
-  <div class="card">
-    <h2>Trade Log</h2>
-    <table><thead><tr>
-      <th>Time</th><th>Side</th><th>Symbol</th><th class="r">Qty</th><th class="r">Price</th><th class="r">P&amp;L</th>
-    </tr></thead><tbody id="trades"></tbody></table>
-  </div>
-
-  <p class="foot">Educational demo · simulated prices only · no orders placed · NSE hours 09:15–15:30 IST · <a class="plain" href="https://github.com/abhi1010-sys/-trading-bo">source repo</a></p>
+  <p class="foot">Educational demo · simulated prices · suggestions are not investment advice · execute manually at your own risk · <a class="plain" href="https://github.com/abhi1010-sys/-trading-bo">source repo</a></p>
 </div>
 
 <script>
-const SYMBOLS = ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","SBIN","ITC","LT","BHARTIARTL","HINDUNILVR"];
-const QTY = 5;
-let cash = 1000000, positions = {}, trades = [], prices = {}, history = {}, running = false, timer = null;
+const UNIVERSE = [
+  "NSE:RELIANCE","NSE:TCS","NSE:INFY","NSE:HDFCBANK","NSE:ICICIBANK","NSE:SBIN",
+  "NSE:ITC","NSE:LT","NSE:BHARTIARTL","NSE:HINDUNILVR","NSE:TATAMOTORS","NSE:MARUTI",
+  "NSE:ADANIPORTS","NSE:BAJFINANCE","NSE:HCLTECH","NSE:KOTAKBANK","NSE:SUNPHARMA",
+  "NSE:NTPC","NSE:TITAN","NSE:WIPRO",
+  "BSE:CESC","BSE:CUB","BSE:GESHIP","BSE:HONAUT","BSE:KPRMILL","BSE:NAVA",
+  "BSE:NCC","BSE:PERSISTENT","BSE:SONACOMS","BSE:THERMAX"
+];
+let bars = 0, prices = {}, history = {}, running = false, timer = null;
 
 const rnd = (a, b) => a + Math.random() * (b - a);
-SYMBOLS.forEach(s => {
+UNIVERSE.forEach(s => {
   prices[s] = rnd(200, 3200);
   history[s] = [];
   for (let i = 0; i < 26; i++) {
@@ -97,70 +92,40 @@ function signal(s) {
   return 0;
 }
 
-function mkLog(side, sym, px, pnl) {
-  const d = { time: new Date().toLocaleTimeString("en-IN", { hour12: false }), side, symbol: sym, qty: QTY, price: px };
-  if (pnl !== undefined) d.pnl = pnl;
-  return d;
-}
-
 function step() {
-  SYMBOLS.forEach(s => {
+  UNIVERSE.forEach(s => {
     prices[s] = Math.max(50, prices[s] * rnd(0.99, 1.01));
     history[s].push(prices[s]);
     if (history[s].length > 100) history[s].shift();
   });
-  SYMBOLS.forEach(s => {
-    const sig = signal(s);
-    if (sig === -1 && positions[s]) {
-      const p = positions[s];
-      const pnl = (prices[s] - p.entry) * p.qty;
-      cash += p.qty * prices[s];
-      trades.push(mkLog("SELL", s, prices[s], pnl));
-      delete positions[s];
-    }
-    if (sig === 1 && !positions[s]) {
-      const cost = QTY * prices[s];
-      if (cost <= cash) {
-        cash -= cost;
-        positions[s] = { qty: QTY, entry: prices[s] };
-        trades.push(mkLog("BUY", s, prices[s]));
-      }
-    }
-  });
+  bars++;
   render();
 }
 
 function render() {
   const btn = $("btn");
-  btn.textContent = running ? "Stop Bot" : "Start Bot";
+  btn.textContent = running ? "Stop Scanner" : "Start Scanner";
   btn.className = running ? "btn stop" : "btn start";
-  $("status").textContent = running ? "Running" : "Standby";
-  let invested = 0, upnl = 0;
-  const actCls = { BUY: "pos", EXIT: "neg", HOLD: "muted", WAIT: "muted" };
-  const sigRows = SYMBOLS.map(s => {
-    const sig = signal(s), inPos = !!positions[s];
-    const action = inPos ? (sig === -1 ? "EXIT" : "HOLD") : (sig === 1 ? "BUY" : "WAIT");
-    const entry = inPos ? positions[s].entry : prices[s];
+  $("status").textContent = running ? "Scanning" : "Standby";
+  $("mkt").textContent = running ? "Session live" : "Session paused";
+
+  const counts = { NSE: 0, BSE: 0 };
+  UNIVERSE.forEach(s => counts[s.split(":")[0]]++);
+  $("univ").textContent = UNIVERSE.length;
+  $("nse").textContent = counts.NSE;
+  $("bse").textContent = counts.BSE;
+  $("bars").textContent = bars.toLocaleString("en-IN");
+
+  const actCls = { BUY: "pos", EXIT: "neg", HOLD: "muted" };
+  const rows = UNIVERSE.map(s => {
+    const sig = signal(s);
+    const action = sig === 1 ? "BUY" : sig === -1 ? "EXIT" : "HOLD";
     const h = history[s], avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+    const exch = s.split(":")[0], name = s.split(":")[1];
     const basis = h.length >= 22 ? `MA9 ${avg(h.slice(-9)).toFixed(1)} vs MA21 ${avg(h.slice(-21)).toFixed(1)}` : `warming up (${h.length}/21 bars)`;
-    return `<tr><td>${s}</td><td style="font-weight:600;" class="${actCls[action]}">${action}${inPos ? ' <span class="muted">(long)</span>' : ""}</td><td class="r">${inr(prices[s])}</td><td class="r">${inr(entry)}</td><td class="r neg">${inr(entry * 0.99)}</td><td class="r pos">${inr(entry * 1.02)}</td><td class="muted" style="font-size:12px;">${basis}</td></tr>`;
-  });
-  $("signals").innerHTML = sigRows.join("");
-  const rows = [];
-  for (const s of Object.keys(positions)) {
-    const p = positions[s], ltp = prices[s];
-    invested += p.qty * p.entry;
-    upnl += (ltp - p.entry) * p.qty;
-    rows.push(`<tr><td>${s}</td><td class="r">${p.qty}</td><td class="r">${inr(p.entry)}</td><td class="r">${inr(ltp)}</td><td class="r ${ltp >= p.entry ? "pos" : "neg"}">${inr((ltp - p.entry) * p.qty)}</td></tr>`);
-  }
-  $("positions").innerHTML = rows.join("") || '<tr><td colspan="5" class="muted">No open positions</td></tr>';
-  $("trades").innerHTML = trades.slice(-30).reverse().map(t =>
-    `<tr><td class="muted">${t.time}</td><td class="${t.side === "BUY" ? "pos" : "neg"}" style="font-weight:600;">${t.side}</td><td>${t.symbol}</td><td class="r">${t.qty}</td><td class="r">${inr(t.price)}</td><td class="r ${t.pnl === undefined ? "muted" : t.pnl >= 0 ? "pos" : "neg"}">${t.pnl === undefined ? "–" : inr(t.pnl)}</td></tr>`
-  ).join("") || '<tr><td colspan="6" class="muted">No trades yet — press Start Bot</td></tr>';
-  $("cash").textContent = inr(cash);
-  $("upnl").textContent = inr(upnl);
-  $("upnl").className = "val " + (upnl >= 0 ? "pos" : "neg");
-  $("tv").textContent = inr(cash + invested);
+    return `<tr><td>${name} <span class="tag">${exch}</span></td><td style="font-weight:600;" class="${actCls[action]}">${action}</td><td class="r">${inr(prices[s])}</td><td class="r">${inr(prices[s])}</td><td class="r neg">${inr(prices[s] * 0.99)}</td><td class="r pos">${inr(prices[s] * 1.02)}</td><td class="muted" style="font-size:12px;">${basis}</td></tr>`;
+  }).sort((a, b) => 0).join("");
+  $("signals").innerHTML = rows;
 }
 
 $("btn").onclick = () => {
