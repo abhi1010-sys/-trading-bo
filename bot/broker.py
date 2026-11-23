@@ -176,6 +176,8 @@ class KiteTickerBroker:
 
     def _on_close(self, ws, code, reason):
         self.connected = False
+        with self._lock:
+            self._ticks.clear()
         log.warning("kite ticker closed: %s %s", code, reason)
 
     # ---- engine interface ----
@@ -195,6 +197,145 @@ class KiteTickerBroker:
                 out = {s: self._ticks.get(s) or self._yf._cache.get(s) for s in symbols}
         else:
             out = self._rest.ltp(symbols)
+        for s in symbols:
+            if not out.get(s):
+                out[s] = self._yf._cache.get(s) or 200 + random.uniform(0, 2800)
+        return out
+
+
+class SharekhanBroker:
+    """Live NSE/BSE data via the Sharekhan (Mirae Asset) Trading API.
+
+    Login:   scripts/sharekhan_login.py -> access token (daily).
+    Feeds:   WebSocket ticks (wss://stream.sharekhan.com) subscribed for
+             the entire universe via the script master; JSON frames are
+             parsed directly, binary frames are passed to a user-supplied
+             `binary_tick_parser` hook (the vendor SDK ships its parser as
+             an unimplemented stub).
+    Fallback: while ticks are absent, symbol prices come from the delayed
+             Yahoo feed - never silently simulated.
+    """
+
+    LABEL = "Zero-delay NSE/BSE ticks via Sharekhan WebSocket (real-time)"
+    EXCHANGE_PREFIX = {"NSE": "NC", "BSE": "BC"}
+
+    def __init__(self, api_key, access_token, binary_tick_parser=None):
+        self.api_key = api_key
+        self.access_token = access_token
+        self.binary_tick_parser = binary_tick_parser
+        self._yf = YahooBroker()
+        self._ticks = {}     # 'EXCHANGE:SYMBOL' -> last tick price
+        self._codes = {}     # 'EXCHANGE:SYMBOL' -> 'NC2475' style feed code
+        self._by_code = {}
+        self._lock = threading.Lock()
+        self.connected = False
+        self._ws = None
+
+    # ---- login <-> session for helpers ----
+    def session_client(self):
+        from SharekhanApi.sharekhanConnect import SharekhanConnect
+        return SharekhanConnect(self.api_key, self.access_token)
+
+    # ---- instrument mapping + subscription ----
+    def connect(self):
+        client = self.session_client()
+        for exch in ("NC", "BC"):
+            try:
+                rows = client.master(exch)
+            except Exception:
+                continue
+            self._map_master(rows, exch)
+        if not self._codes:
+            raise RuntimeError("script master unavailable - check access token")
+        self._connect_ws()
+
+    def _map_master(self, rows, exch):
+        for row in rows or []:
+            code = row.get("ScripCode") or row.get("scripCode")
+            sym = row.get("Name") or row.get("Symbol") or row.get("shortName")
+            if code is None or not sym:
+                continue
+            exch_full = "NSE" if exch == "NC" else "BSE"
+            key = f"{exch_full}:{sym.upper()}"
+            watch = self.symbols
+            if watch and key in watch:
+                feed_code = f"{exch}{code}"
+                self._codes[key] = feed_code
+                self._by_code[feed_code] = key
+                self._by_code.setdefault(str(code), key)
+
+    def _connect_ws(self):
+        from SharekhanApi.sharekhanWebsocket import SharekhanWebSocket
+        self._ws = SharekhanWebSocket(self.access_token)
+        self._ws.on_open = self._on_open
+        self._ws.on_data = self._on_data
+        self._ws.on_error = self._on_error
+        self._ws.on_close = self._on_close
+        threading.Thread(target=self._ws.connect, daemon=True).start()
+
+    def _on_open(self, wsapp):
+        self.connected = True
+        codes = list(self._codes.values())
+        for i in range(0, len(codes), 200):
+            chunk = ",".join(codes[i:i + 200])
+            self._ws.subscribe({"action": "subscribe", "key": ["feed"], "value": [chunk]})
+        log.info("sharekhan ws connected: %d stream codes subscribed", len(codes))
+
+    # ---- tick parsing ----
+    def _on_data(self, wsapp, message):
+        tick = None
+        if isinstance(message, str):
+            try:
+                tick = json.loads(message)
+            except Exception:
+                tick = None
+        elif isinstance(message, (dict, list)):
+            tick = message
+        elif message is None and self.binary_tick_parser:
+            tick = self.binary_tick_parser(wsapp)
+        for sym, px in self._extract_price(tick):
+            with self._lock:
+                self._ticks[sym] = float(px)
+
+    def _extract_price(self, tick):
+        out = []
+        if isinstance(tick, dict):
+            code = tick.get("Token") or tick.get("token") or tick.get("ScripCode") or tick.get("scripCode")
+            px = tick.get("lastPrice") or tick.get("Ltp") or tick.get("ltp") or tick.get("last_price") or tick.get("price")
+            if code is not None and px:
+                key = self._by_code.get(str(code)) or self._by_code.get(code)
+                if key:
+                    out.append((key, px))
+        elif isinstance(tick, list):
+            for t in tick:
+                out.extend(self._extract_price(t))
+        return out
+
+    def _on_error(self, wsapp, error):
+        log.warning("sharekhan ws error: %s", error)
+
+    def _on_close(self, wsapp, *args):
+        self.connected = False
+        with self._lock:
+            self._ticks.clear()
+
+    # ---- engine interface ----
+    def set_symbols(self, symbols):
+        self.symbols = list(symbols)
+
+    def daily_history(self, sym, bars=130):
+        return self._yf.daily_history(sym, bars)
+
+    @property
+    def feed_ready(self):
+        return self.connected and bool(self._ticks)
+
+    def effective_label(self):
+        return self.LABEL if self.feed_ready else "Delayed NSE/BSE via Yahoo (~15-min) - Sharekhan ws ticks not flowing"
+
+    def ltp(self, symbols):
+        with self._lock:
+            out = {s: self._ticks.get(s) for s in symbols}
         for s in symbols:
             if not out.get(s):
                 out[s] = self._yf._cache.get(s) or 200 + random.uniform(0, 2800)

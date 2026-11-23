@@ -258,6 +258,11 @@ class InstitutionalEngine:
 
     # ---------------- reporting ----------------
     def snapshot(self):
+        src = self.broker_label
+        eff = getattr(self.broker, "effective_label", None)
+        if eff:
+            src = eff()
+        feed_ready = bool(getattr(self.broker, "feed_ready", True))
         nav = self.nav()
         invested = sum(p["qty"] * self.priced.get(s, p["entry"]) for s, p in self.positions.items())
         holdings = []
@@ -278,7 +283,8 @@ class InstitutionalEngine:
             "status": self.status,
             "market_open": is_market_open(),
             "mode": "institutional-model",
-            "data_source": self.broker_label,
+            "data_source": src,
+            "feed_ready": feed_ready,
             "poll_seconds": self.poll_seconds,
             "universe_size": len(self.symbols),
             "by_exchange": _count_by_exchange(self.symbols),
