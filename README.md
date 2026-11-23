@@ -51,6 +51,20 @@ last close; the model book itself only fills during NSE/BSE hours).
 `{exchange, symbol, action: BUY|EXIT|HOLD, price, entry, stop_loss, target,
 basis}` sorted with actionable (`BUY`/`EXIT`) rows first.
 
+## Zero-delay (real-time) ticks
+The default Yahoo feed is real data but ~15-min delayed. For true
+zero-delay ticks you need Zerodha Kite Connect (paid; create an app at
+[developers.kite.trade](https://developers.kite.trade)):
+
+1. `export KITE_API_KEY=... KITE_API_SECRET=...`
+2. `python scripts/kite_login.py` (repeat daily - tokens expire)
+3. `KITE_API_KEY=... KITE_ACCESS_TOKEN=... python app.py`
+
+The engine then consumes WebSocket ticks with 5s decision cycles and
+shows `data_source: Zero-delay NSE/BSE ticks via Kite WebSocket` on the
+dashboard. If the socket drops it degrades to chunked REST LTP
+(no subscription), and never to simulated prices silently.
+
 ## Safety
 The book is simulated ("model") - no order placement, no broker execution.
 Signals come from a simple moving-average crossover and are not investment
