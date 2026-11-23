@@ -6,44 +6,44 @@ import urllib.request
 class KiteBroker:
     """Live data sessions via Zerodha Kite (api.kite.trade).
 
-    If an access token is given, `ltp` calls out to the broker; for
-    unsupported symbols we fall back to a deterministic pseudo-price so
-    the paper engine still works. No order-placement here.
+    `ltp` accepts exchange-prefixed symbols ("NSE:RELIANCE", "BSE:CUB").
+    Requests are chunked 100 instruments at a time. Unsupported symbols
+    fall back to a deterministic pseudo-price so the suggestion engine
+    still works. No order-placement here.
     """
 
     KITE_LTP_URL = "https://api.kite.trade/quote/ltp"
+    CHUNK = 100
 
     def __init__(self, access_token):
         self.access_token = access_token
 
     def _ltp_live(self, symbols):
-        inst = [f"NSE:{s}" for s in symbols]
-        payload = urllib.parse.urlencode({"i": inst}).encode()
+        payload = urllib.parse.urlencode([("i", s) for s in symbols]).encode()
         req = urllib.request.Request(self.KITE_LTP_URL, data=payload, method="POST")
         req.add_header("X-Kite-Version", "3")
         req.add_header("Authorization", f"token {self.access_token}")
         data = urllib.request.urlopen(req, timeout=5).read()
         j = json.loads(data)
-        out = {}
-        for key, item in j.get("data", {}).items():
-            sym = key.split(":")[-1]
-            out[sym] = item.get("last_price")
-        return out
+        return {key: item.get("last_price") for key, item in j.get("data", {}).items()}
 
     def ltp(self, symbols):
-        try:
-            res = self._ltp_live(symbols)
-        except Exception:
-            res = {}
+        out = {}
+        for i in range(0, len(symbols), self.CHUNK):
+            try:
+                out.update(self._ltp_live(symbols[i:i + self.CHUNK]))
+            except Exception:
+                pass
         for s in symbols:
-            if s not in res or not res[s]:
-                rng = 3000 if s in ("RELIANCE", "HDFCBANK", "HINDUNILVR", "LT") else 1500
-                res[s] = 200 + random.uniform(0, rng)
-        return res
+            if s not in out or not out[s]:
+                short = s.split(":")[-1]
+                rng = 3000 if short in ("RELIANCE", "HDFCBANK", "HINDUNILVR", "LT") else 1500
+                out[s] = 200 + random.uniform(0, rng)
+        return out
 
 
 class SimBroker:
-    """Fully simulated ticks - no network at all."""
+    """Fully simulated ticks for every exchange-prefixed symbol - no network at all."""
 
     def __init__(self):
         self._walk = {}
