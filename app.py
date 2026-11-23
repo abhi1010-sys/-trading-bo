@@ -1,20 +1,29 @@
 from flask import Flask, jsonify, request, render_template
 
 from bot.engine import init_engine, get_engine
-from bot.broker import KiteBroker, KiteTickerBroker, SimBroker, YahooBroker
+from bot.broker import KiteBroker, KiteTickerBroker, SharekhanBroker, SimBroker, YahooBroker
 
 app = Flask(__name__)
+
+
+def os_get(name):
+    import os
+    return os.environ.get(name)
 
 
 def _broker_from(request):
     if request.args.get("sim") == "1":
         return SimBroker()
-    at = request.args.get("kite_token")
-    key = request.args.get("kite_api_key")
-    if at and key:
-        return KiteTickerBroker(key, at)
-    if at:
-        return KiteBroker(at)
+    at = request.args.get("sk_access_token") or os_get("SHAREKHAN_ACCESS_TOKEN")
+    key = request.args.get("sk_api_key") or os_get("SHAREKHAN_API_KEY")
+    if key and at:
+        return SharekhanBroker(key, at)
+    kt = request.args.get("kite_token")
+    kkey = request.args.get("kite_api_key")
+    if kt and kkey:
+        return KiteTickerBroker(kkey, kt)
+    if kt:
+        return KiteBroker(kt)
     return YahooBroker()
 
 
@@ -58,6 +67,6 @@ def stop():
 
 if __name__ == "__main__":
     import os
-    key, token = os.environ.get("KITE_API_KEY"), os.environ.get("KITE_ACCESS_TOKEN")
-    init_engine(KiteTickerBroker(key, token) if (key and token) else YahooBroker())
+    key, token = os.environ.get("SHAREKHAN_API_KEY"), os.environ.get("SHAREKHAN_ACCESS_TOKEN")
+    init_engine(SharekhanBroker(key, token) if (key and token) else YahooBroker())
     app.run(host="127.0.0.1", port=5000, debug=True)

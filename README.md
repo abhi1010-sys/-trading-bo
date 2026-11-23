@@ -52,18 +52,30 @@ last close; the model book itself only fills during NSE/BSE hours).
 basis}` sorted with actionable (`BUY`/`EXIT`) rows first.
 
 ## Zero-delay (real-time) ticks
-The default Yahoo feed is real data but ~15-min delayed. For true
-zero-delay ticks you need Zerodha Kite Connect (paid; create an app at
-[developers.kite.trade](https://developers.kite.trade)):
+The default Yahoo feed is real data but ~15-min delayed. Two real-time
+routes are supported:
 
+**Sharekhan (your broker, free):**
+1. Generate an API key at [sharekhan.com/trading-api](https://www.sharekhan.com/trading-api)
+   (free; standard brokerage applies)
+2. `export SHAREKHAN_API_KEY=... SHAREKHAN_SECRET_KEY=...`
+3. `python scripts/sharekhan_login.py` (per-session; repeat each market day)
+4. `SHAREKHAN_API_KEY=... SHAREKHAN_ACCESS_TOKEN=... python app.py`
+
+Notes: the engine subscribes the whole universe on
+`wss://stream.sharekhan.com` and falls back to the delayed Yahoo feed
+while ticks are absent (never to silent simulation). The vendor SDK
+ships its binary tick parser as an unimplemented stub, so JSON frames
+parse out of the box; for raw binary frames pass a
+`binary_tick_parser` callable to `SharekhanBroker`.
+
+**Zerodha Kite Connect (paid ~₹2,000/mo):**
 1. `export KITE_API_KEY=... KITE_API_SECRET=...`
 2. `python scripts/kite_login.py` (repeat daily - tokens expire)
 3. `KITE_API_KEY=... KITE_ACCESS_TOKEN=... python app.py`
 
-The engine then consumes WebSocket ticks with 5s decision cycles and
-shows `data_source: Zero-delay NSE/BSE ticks via Kite WebSocket` on the
-dashboard. If the socket drops it degrades to chunked REST LTP
-(no subscription), and never to simulated prices silently.
+Either way the engine drops to 5s decision cycles and the dashboard
+shows the effective data source in real time.
 
 ## Safety
 The book is simulated ("model") - no order placement, no broker execution.
