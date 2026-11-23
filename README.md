@@ -12,6 +12,14 @@ strategy and books paper trades at live (Kite) or simulated prices.
 - `bot/market_hours.py` – NSE session guard (09:15–15:30 IST, Mon–Fri).
 - `templates/index.html` – dashboard: start/stop, cash, P&L, positions,
   trade log.
+- `demo.html` – standalone in-browser demo of the same dashboard and
+  strategy (no Python needed; open directly in a browser).
+
+Entry/exit signals: the engine (and demo) expose an actionable
+`signals` list per symbol — `BUY` (MA9 crossed above MA21), `EXIT`
+(crossed below and holding), `HOLD`, `WAIT — each with entry at LTP,
+stop-loss 1% below entry and target 2% above (1:2 risk-reward),
+suited to NSE intraday bracket-style levels.
 
 ## Run
 ```bash
@@ -29,6 +37,10 @@ Open http://127.0.0.1:5000
 | POST | `/api/start?kite_token=<token>` | start engine with live LTP |
 | POST | `/api/stop` | stop engine |
 | POST | `/api/tick` | force one strategy pass |
+
+The `/api/status` and `/api/tick` snapshots include a `signals` array:
+`{symbol, action: BUY\|EXIT\|HOLD\|WAIT, in_position, price, entry,
+stop_loss, target, basis}`.
 
 ## Safety
 Paper trading only — order placement is intentionally out of scope. To wire

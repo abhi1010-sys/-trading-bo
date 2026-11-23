@@ -45,6 +45,13 @@
   </div>
 
   <div class="card">
+    <h2>Signals — Entry / Exit <span style="font-weight:400;">(NIFTY50 watchlist · SL 1% · Target 2%)</span></h2>
+    <table><thead><tr>
+      <th>Symbol</th><th>Action</th><th class="r">LTP</th><th class="r">Entry</th><th class="r">Stop&nbsp;Loss</th><th class="r">Target</th><th>Basis</th>
+    </tr></thead><tbody id="signals"></tbody></table>
+  </div>
+
+  <div class="card">
     <h2>Open Positions</h2>
     <table><thead><tr>
       <th>Symbol</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">LTP</th><th class="r">P&amp;L</th>
@@ -129,6 +136,16 @@ function render() {
   btn.className = running ? "btn stop" : "btn start";
   $("status").textContent = running ? "Running" : "Standby";
   let invested = 0, upnl = 0;
+  const actCls = { BUY: "pos", EXIT: "neg", HOLD: "muted", WAIT: "muted" };
+  const sigRows = SYMBOLS.map(s => {
+    const sig = signal(s), inPos = !!positions[s];
+    const action = inPos ? (sig === -1 ? "EXIT" : "HOLD") : (sig === 1 ? "BUY" : "WAIT");
+    const entry = inPos ? positions[s].entry : prices[s];
+    const h = history[s], avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+    const basis = h.length >= 22 ? `MA9 ${avg(h.slice(-9)).toFixed(1)} vs MA21 ${avg(h.slice(-21)).toFixed(1)}` : `warming up (${h.length}/21 bars)`;
+    return `<tr><td>${s}</td><td style="font-weight:600;" class="${actCls[action]}">${action}${inPos ? ' <span class="muted">(long)</span>' : ""}</td><td class="r">${inr(prices[s])}</td><td class="r">${inr(entry)}</td><td class="r neg">${inr(entry * 0.99)}</td><td class="r pos">${inr(entry * 1.02)}</td><td class="muted" style="font-size:12px;">${basis}</td></tr>`;
+  });
+  $("signals").innerHTML = sigRows.join("");
   const rows = [];
   for (const s of Object.keys(positions)) {
     const p = positions[s], ltp = prices[s];

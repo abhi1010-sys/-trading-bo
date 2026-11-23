@@ -22,6 +22,8 @@ WATCHLIST = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK",
              "SBIN", "ITC", "LT", "BHARTIARTL", "HINDUNILVR"]
 
 STRATEGY_PARAMS = {"fast": 9, "slow": 21, "qty": 5}
+STOP_PCT = 0.01   # 1% below entry (NSE intraday SL)
+TARGET_PCT = 0.02 # 2% above entry (1:2 risk-reward)
 CASH = 1_000_000.0  # paper capital
 
 _engine_lock = threading.Lock()
@@ -70,6 +72,44 @@ class LiveTradingEngine:
         if cross_dn:
             return -1
         return 0
+
+    # ---------------- signals ----------------
+    def _decision(self, sym):
+        px = self.priced.get(sym)
+        if not px:
+            return None
+        sig = self._signal(sym)
+        in_pos = sym in self.positions
+        if in_pos:
+            action = "EXIT" if sig == -1 else "HOLD"
+            entry = self.positions[sym]["entry"]
+        else:
+            action = "BUY" if sig == 1 else "WAIT"
+            entry = px
+        fast, slow = self.params["fast"], self.params["slow"]
+        h = self.history[sym]
+        if len(h) >= slow:
+            fma = sum(h[-fast:]) / fast
+            sma = sum(h[-slow:]) / slow
+            basis = f"MA{fast} {fma:.1f} vs MA{slow} {sma:.1f}"
+        else:
+            basis = f"warming up ({len(h)}/{slow} bars)"
+        return {
+            "symbol": sym,
+            "action": action,
+            "in_position": in_pos,
+            "price": round(px, 2),
+            "entry": round(entry, 2),
+            "stop_loss": round(entry * (1 - STOP_PCT), 2),
+            "target": round(entry * (1 + TARGET_PCT), 2),
+            "basis": basis,
+        }
+
+    def signals(self):
+        rows = [self._decision(s) for s in self.symbols]
+        rows = [r for r in rows if r]
+        priority = {"EXIT": 0, "BUY": 1, "HOLD": 2, "WAIT": 3}
+        return sorted(rows, key=lambda r: (priority.get(r["action"], 9), r["symbol"]))
 
     # ---------------- orders (paper) ----------------
     def _buy(self, sym, px):
@@ -155,6 +195,7 @@ class LiveTradingEngine:
             "positions": holdings,
             "trades": list(reversed(self.trade_log[-30:])),
             "quotes": {s: round(v, 2) for s, v in self.priced.items()},
+            "signals": self.signals(),
         }
 
 
