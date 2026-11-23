@@ -14,8 +14,11 @@ entry, stop-loss and target levels. Real broker orders are never placed.
   positions, 20% cash floor, 5% stop-losses
   and 15% targets (1:3 risk-reward), plus a suggestions table with the
   MA basis behind each call. Model fills only.
-- `bot/broker.py` – `KiteBroker` (live LTP via Zerodha Kite REST API,
-  chunked 100 instruments per request) and `SimBroker` (fully offline).
+- `bot/broker.py` – three feeds: `YahooBroker` (default; free real NSE/BSE
+  prices via Yahoo Finance chart API, ~15-min delayed, plus 1-year daily
+  history that seeds the MA(100) instantly), `KiteBroker` (real-time Kite
+  REST when you pass a token; chunked 100 instruments per request) and
+  `SimBroker` (offline demo via `/api/start?sim=1`).
 - `bot/market_hours.py` – NSE/BSE session guard (09:15–15:30 IST, Mon–Fri).
 - `templates/index.html` – dashboard: scanner start/stop, universe stats,
   signals table.
@@ -27,14 +30,19 @@ entry, stop-loss and target levels. Real broker orders are never placed.
 pip install -r requirements.txt
 python app.py
 ```
-Open http://127.0.0.1:5000
+Open http://127.0.0.1:5000 and press Run Fund. First start warms up by
+pulling ~1 year of daily closes per symbol (~1-2 min for 166 symbols;
+status shows "WARMING UP"), after which detailed entry / stop / target
+levels are published on real prices even outside market hours (levels on
+last close; the model book itself only fills during NSE/BSE hours).
 
 ## Endpoints
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET  | `/` | dashboard |
 | GET  | `/api/status` | snapshot: universe stats + signals |
-| POST | `/api/start?sim=1` | start scanner with SimBroker |
+| POST | `/api/start` | start with live Yahoo feed (default) |
+| POST | `/api/start?sim=1` | start offline with simulated prices |
 | POST | `/api/start?kite_token=<token>` | start with live NSE+BSE quotes |
 | POST | `/api/stop` | stop scanner |
 | POST | `/api/tick` | force one scan pass |

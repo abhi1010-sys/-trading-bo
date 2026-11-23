@@ -14,7 +14,7 @@
   <div class="max-w-6xl mx-auto">
     <header class="mb-6">
       <h1 class="text-2xl font-bold">🇮🇳 India Trade Bot <span class="text-gray-500 text-base">(NSE + BSE · Institutional Model Book)</span></h1>
-      <p class="text-gray-500 text-sm mt-1">₹25 Cr simulated fund · MA(20/100) trend model · 0.5% risk sizing · 4% position cap · manual execution</p>
+      <p class="text-gray-500 text-sm mt-1">₹25 Cr simulated fund · MA(20/100) trend model · <span id="src" class="text-gray-400">live NSE/BSE data</span> · manual execution</p>
     </header>
 
     <div class="card rounded-lg p-4 mb-4 flex items-center gap-4">
@@ -32,7 +32,7 @@
     </div>
 
     <div class="card rounded-lg p-4 mb-4">
-      <div class="text-xs text-gray-500 mb-2">Model Book — Entry / Exit <span class="text-gray-600">(upstream signals: SL 5% · Target 15% · suggested sizes in shares)</span></div>
+      <div class="text-xs text-gray-500 mb-2">Model Book — Entry / Exit <span class="text-gray-600">(SL 5% · Target 15% · suggested sizes in shares)</span></div>
       <table class="w-full text-sm"><thead class="text-gray-500 text-xs"><tr>
         <th class="text-left pb-1">Symbol</th><th class="text-left">Action</th><th class="text-right">LTP</th><th class="text-right">Entry</th><th class="text-right">Stop&nbsp;Loss</th><th class="text-right">Target</th><th class="text-right">Suggested&nbsp;Qty</th><th class="text-left">Basis</th>
       </tr></thead><tbody id="signals"></tbody></table>
@@ -72,7 +72,7 @@
         ? "px-4 py-2 rounded bg-red-600 hover:bg-red-500 font-semibold text-sm"
         : "px-4 py-2 rounded bg-green-600 hover:bg-green-500 font-semibold text-sm";
       const ob = $("badge-open");
-      ob.textContent = s.market_open ? "Market Open" : "Market Closed";
+      ob.textContent = s.market_open ? "Market Open" : "Market Closed · levels on last close";
       ob.className = "text-xs px-2 py-1 rounded border " +
         (s.market_open ? "border-green-700 text-green-400" : "border-gray-700 text-gray-500");
 
@@ -82,6 +82,7 @@
       $("exp").textContent = s.exposure != null ? (s.exposure * 100).toFixed(1) + "%" : "–";
       $("cash").textContent = s.cash != null ? inr(s.cash) : "–";
 
+      if (s.data_source) $("src").textContent = s.data_source;
       const ACT = {"BUY": "text-green-400", "EXIT": "text-red-400", "HOLD": "text-yellow-400", "WAIT": "text-gray-600"};
       $("signals").innerHTML = (s.signals || []).map(r => `<tr class="border-t border-gray-800">
         <td class="py-1 font-medium">${displayName(r)}</td>
@@ -89,9 +90,9 @@
         <td class="text-right text-gray-300">${inr(r.price)}</td>
         <td class="text-right">${inr(r.entry)}</td>
         <td class="text-right text-red-400">${inr(r.stop_loss)}</td>
-        <td class="text-right text-green-400">${inr(r.target)}</td>
+        <td class="text-right text-green-400">${inr(r.target)} <span class="text-xs text-gray-500">(+${r.upside_pct}%)</span></td>
         <td class="text-right text-gray-400">${(r.suggested_qty || 0).toLocaleString("en-IN")}</td>
-        <td class="text-left text-gray-500 text-xs">${r.basis}</td></tr>`).join("");
+        <td class="text-left text-gray-500 text-xs">${r.basis} · R:R ${r.reward_risk}:1</td></tr>`).join("");
 
       $("positions").innerHTML = (s.positions || []).map(p => `<tr class="border-t border-gray-800">
         <td class="py-1 font-medium">${displayName(p)}</td>
