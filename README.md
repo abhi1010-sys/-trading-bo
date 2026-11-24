@@ -4,6 +4,19 @@ Minimal Flask app that runs an institutional-style simulated model book
 over a NSE + BSE universe and publishes real-time trade suggestions with
 entry, stop-loss and target levels. Real broker orders are never placed.
 
+## Pure web version — no Python, no install
+- `web.html` — the same institutional model book as a single self-contained
+  browser page. Just open the file, no install, no server, no Python.
+  It seeds MA history from 1 year of daily bars and streams prices (Yahoo
+  Finance, ~15-min delayed; where the browser cannot fetch directly it
+  transparently relays via a public CORS proxy, labelled honestly), falls
+  back to clearly-labelled simulated demo data if no relay is reachable —
+  never silently — and remembers your model book between visits
+  (localStorage; "Reset book" to start fresh). Same ₹25 Cr NAV, risk
+  sizing, 4% weights, 5% stops / 15% targets, suggestions only.
+  Tip: host it free on GitHub Pages — Settings → Pages → Deploy from
+  branch: main / root — then it is a website on your phone too.
+
 ## What it does
 - `bot/universe.py` – tradable universe as `EXCHANGE:SYMBOL` keys:
   Nifty 50, a Nifty Next 100 subset and a BSE midcap subset. Edit freely;
@@ -22,8 +35,8 @@ entry, stop-loss and target levels. Real broker orders are never placed.
 - `bot/market_hours.py` – NSE/BSE session guard (09:15–15:30 IST, Mon–Fri).
 - `templates/index.html` – dashboard: scanner start/stop, universe stats,
   signals table.
-- `demo.html` – standalone in-browser demo of the same dashboard
-  (no Python needed; open directly in a browser).
+- `demo.html` – standalone in-browser demo (30-symbol sample; kept for
+  reference — `web.html` is the current pure-web version).
 
 ## Run
 ```bash
