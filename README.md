@@ -14,6 +14,14 @@ entry, stop-loss and target levels. Real broker orders are never placed.
   never silently — and remembers your model book between visits
   (localStorage; "Reset book" to start fresh). Same ₹25 Cr NAV, risk
   sizing, 4% weights, 5% stops / 15% targets, suggestions only.
+  Optional ZERO-DELAY: paste your Sharekhan API key + access token (from
+  `scripts/sharekhan_login.py`) into the web page's feed panel — the page
+  connects straight to Sharekhan's WebSocket (`wss://stream.sharekhan.com`,
+  token in the URL, 25s heartbeat ping) and streams live ticks for all
+  scrip codes mapped from the public Sharekhan master (2026-11-24;
+  162/166 symbols — LTIM, BSE:TIMETABLESO, BSE:TISSO stay on the delayed
+  Yahoo fallback). Live ticks update NAV/P&L/signals instantly; the badge
+  flips to "LIVE · ZERO-DELAY" only when real ticks are flowing.
   Tip: host it free on GitHub Pages — Settings → Pages → Deploy from
   branch: main / root — then it is a website on your phone too.
 
