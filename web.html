@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>India Trade Bot — Web (No Python)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; background: #0d1117; }
+    .card { background: #161b22; border: 1px solid #21262d; }
+    .pill { font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid #30363d; }
+  </style>
+</head>
+<body class="text-gray-200 p-6">
+  <div class="max-w-6xl mx-auto">
+    <header class="mb-6">
+      <h1 class="text-2xl font-bold">🇮🇳 India Trade Bot <span class="text-gray-500 text-base">(Web · NSE + BSE · Institutional Model Book)</span></h1>
+      <p class="text-gray-500 text-sm mt-1">₹25 Cr model fund · MA(20/100) trend model · pure browser app — no Python, no server · suggestions only</p>
+      <p class="text-gray-600 text-xs mt-1">IST clock: <span id="clock">–</span></p>
+    </header>
+
+    <div class="card rounded-lg p-4 mb-4 flex flex-wrap items-center gap-3">
+      <button id="btn-toggle" class="px-4 py-2 rounded bg-green-600 hover:bg-green-500 font-semibold text-sm">Run Fund</button>
+      <button id="btn-reset" class="px-3 py-2 rounded border border-gray-700 hover:bg-gray-800 text-xs">Reset book</button>
+      <select id="preset" class="bg-gray-900 border border-gray-700 rounded text-sm px-2 py-2">
+        <option value="50">Nifty 50 (light)</option>
+        <option value="wide">Wide universe — Next 100 + BSE midcaps (166)</option>
+      </select>
+      <span id="status" class="text-sm text-gray-400">Standby</span>
+      <span class="ml-auto flex items-center gap-2">
+        <span id="badge-open" class="text-xs px-2 py-1 rounded border border-gray-700">Market</span>
+        <span id="badge-src" class="text-xs px-2 py-1 rounded border border-gray-700 text-gray-400">Source</span>
+        <span class="text-xs px-2 py-1 rounded border border-gray-700 text-yellow-400" title="Simulated model book — no real orders">Model book only</span>
+      </span>
+    </div>
+
+    <div class="grid grid-cols-4 gap-4 mb-4">
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">NAV (+P&amp;L)</div><div id="nav" class="text-xl font-semibold">–</div></div>
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Invested</div><div id="inv" class="text-xl font-semibold">–</div></div>
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Exposure</div><div id="exp" class="text-xl font-semibold">–</div></div>
+      <div class="card rounded-lg p-4"><div class="text-xs text-gray-500">Cash</div><div id="cash" class="text-xl font-semibold">–</div></div>
+    </div>
+
+    <div class="card rounded-lg p-4 mb-4">
+      <h2 class="font-semibold mb-2">Model Book — Entry/Exit suggestions</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="text-gray-500 text-xs uppercase"><tr>
+            <th class="text-left py-1">Symbol</th><th class="text-left">Action</th><th class="text-right">Price</th>
+            <th class="text-right">Entry</th><th class="text-right">Stop</th><th class="text-right">Target</th>
+            <th class="text-right">Qty</th><th class="text-right">Upside</th><th class="text-left pl-3">Basis</th>
+          </tr></thead>
+          <tbody id="signals" class="font-mono text-xs"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card rounded-lg p-4 mb-4">
+      <h2 class="font-semibold mb-2">Open positions (<span id="poscount">0</span>/25)</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="text-gray-500 text-xs uppercase"><tr>
+            <th class="text-left py-1">Symbol</th><th class="text-right">Qty</th><th class="text-right">Entry</th>
+            <th class="text-right">LTP</th><th class="text-right">P&amp;L</th><th class="text-right">Weight</th>
+            <th class="text-right">Stop</th><th class="text-right">Target</th>
+          </tr></thead>
+          <tbody id="positions" class="font-mono text-xs"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card rounded-lg p-4 mb-4">
+      <h2 class="font-semibold mb-2">Model fills</h2>
+      <div id="fills" class="text-xs font-mono text-gray-400 max-h-52 overflow-y-auto"></div>
+    </div>
+
+    <footer class="text-xs text-gray-600 space-y-1">
+      <p>Suggestions only — nothing is auto-executed. No real broker orders are ever placed.</p>
+      <p>Browser apps get Yahoo Finance data indirectly (it is ~15-min delayed and needs a CORS relay); the source badge always states honestly what mode you are in. If no relay is reachable it falls back to clearly-labelled simulated demo data — never silently.</p>
+      <p>Educational tool. Not investment advice. Markets involve risk of capital loss.</p>
+    </footer>
+  </div>
+
+<script>
+/* ENGINE-BEGIN (pure logic, no DOM) */
+const STRATEGY = { fast: 20, slow: 100 };
+const STOP_PCT = 0.05, TARGET_PCT = 0.15, RISK_PCT = 0.005;
+const MAX_POSITIONS = 25, MAX_WEIGHT = 0.04, MIN_CASH_PCT = 0.20;
+const NAV_START = 250000000, MAX_BARS = 300;
+
+function splitKey(sym) { const i = sym.indexOf(":"); return [sym.slice(0, i), sym.slice(i + 1)]; }
+
+function marketOpen(now) {
+  const ist = new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60000);
+  const d = ist.getDay(), m = ist.getHours() * 60 + ist.getMinutes();
+  return d >= 1 && d <= 5 && m >= 555 && m <= 930;
+}
+
+function ma(arr, n) {
+  if (!arr || arr.length < n) return null;
+  let s = 0;
+  for (let i = arr.length - n; i < arr.length; i++) s += arr[i];
+  return s / n;
+}
+
+const Engine = {
+  nav: NAV_START, cash: NAV_START, pos: {}, trades: [], bars: {}, last: {},
+  watch: [], running: false, dataSource: "starting…", feedReady: false,
+
+  reset() {
+    this.nav = NAV_START; this.cash = NAV_START; this.pos = {}; this.trades = [];
+    this.bars = {}; this.last = {};
+  },
+
+  seed(sym, closes) {
+    const b = (closes || []).filter(x => typeof x === "number" && isFinite(x) && x > 0).slice(-MAX_BARS);
+    if (b.length) this.bars[sym] = b;
+  },
+  setPrice(sym, ltp) { if (typeof ltp === "number" && isFinite(ltp) && ltp > 0) this.last[sym] = ltp; },
+  append(sym, p) {
+    if (!(typeof p === "number") || !isFinite(p) || p <= 0) return;
+    const b = (this.bars[sym] || []).concat([p]).slice(-MAX_BARS);
+    this.bars[sym] = b; this.last[sym] = p;
+  },
+
+  series(sym) {
+    const b = this.bars[sym]; if (!b || b.length < 2) return null;
+    const l = this.last[sym];
+    return b.slice(-MAX_BARS);
+  },
+
+  _cross(sym) {
+    const s = this.series(sym); if (!s) return { action: "WAIT", basis: "no history" };
+    const f = ma(s, STRATEGY.fast), sl = ma(s, STRATEGY.slow);
+    const p = s[s.length - 1];
+    if (f == null || sl == null) return { action: "WAIT", price: p, basis: `warming up ${s.length}/${STRATEGY.slow}+ bars` };
+    const h = s.slice(0, -1);
+    const pf = ma(h, STRATEGY.fast), psl = ma(h, STRATEGY.slow);
+    if (pf == null || psl == null) return { action: "WAIT", price: p, basis: `warming up ${h.length}/${STRATEGY.slow} bars` };
+    if (pf <= psl && f > sl) return { action: "BUY", price: p, basis: `MA cross-up · fast ${f.toFixed(1)} > slow ${sl.toFixed(1)}` };
+    if (pf > psl && f <= sl) return { action: "EXIT", price: p, basis: `MA cross-down · fast ${f.toFixed(1)} ≤ slow ${sl.toFixed(1)}` };
+    return { action: "HOLD", price: p, basis: `trend ${f > sl ? "up" : "down"} · MAs ${f.toFixed(1)}/${sl.toFixed(1)}` };
+  },
+
+  _decision(sym) {
+    const ltp = this.last[sym], pos = this.pos[sym];
+    if (pos && ltp != null && ltp <= pos.stop)
+      return { action: "EXIT", price: ltp, basis: `stop-loss hit (₹${pos.stop.toFixed(1)})`, reason: "stop-loss" };
+    const c = this._cross(sym);
+    if (c.action === "EXIT" && pos) return { ...c, reason: "trend break" };
+    if (c.action === "BUY" && pos) return { ...c, action: "HOLD" };
+    if (c.action !== "BUY" && !pos && c.action === "EXIT") return { ...c, action: "WAIT" };
+    return c;
+  },
+
+  _sizing(entry, stop) {
+    const d = entry - stop; if (d <= 0) return 0;
+    const byRisk = Math.floor((RISK_PCT * this.nav) / d);
+    const byWt = Math.floor((MAX_WEIGHT * this.nav) / entry);
+    return Math.max(0, Math.min(byRisk, byWt));
+  },
+
+  step(now) {
+    const open = marketOpen(now || new Date());
+    this._open = open;
+    for (const sym of this.watch) {
+      const d = this._decision(sym);
+      if (!open || !d) continue;
+      if (d.action === "EXIT" && this.pos[sym]) this._sell(sym, d.price, d.reason);
+      else if (d.action === "BUY" && !this.pos[sym]) this._buy(sym, d.price);
+    }
+    return open;
+  },
+
+  _buy(sym, px) {
+    if (!(px > 0)) return;
+    if (Object.keys(this.pos).length >= MAX_POSITIONS) return;
+    const stop = px * (1 - STOP_PCT), target = px * (1 + TARGET_PCT);
+    let qty = this._sizing(px, stop);
+    const floor = this.nav * MIN_CASH_PCT;
+    if (this.cash - qty * px < floor) qty = Math.floor((this.cash - floor) / px);
+    if (qty < 1) return;
+    this.cash -= qty * px;
+    this.pos[sym] = { qty, entry: px, stop, target, ts: Date.now() };
+    this.trades.unshift({ sym, side: "BUY", qty, px, ts: Date.now(), reason: "entry" });
+    if (this.trades.length > 120) this.trades.length = 120;
+  },
+
+  _sell(sym, px, reason) {
+    const p = this.pos[sym]; if (!p || !(px > 0)) return;
+    const pnl = (px - p.entry) * p.qty;
+    this.cash += p.qty * px;
+    delete this.pos[sym];
+    this.trades.unshift({ sym, side: "SELL", qty: p.qty, px, ts: Date.now(), reason, pnl });
+  },
+
+  valuation() {
+    let invested = 0;
+    for (const [sym, p] of Object.entries(this.pos)) {
+      const l = this.last[sym] != null ? this.last[sym] : p.entry;
+      p.ltp = l; p.pnl = (l - p.entry) * p.qty;
+      invested += l * p.qty;
+    }
+    const navNow = this.cash + invested;
+    return { invested, navNow, pnl: navNow - NAV_START, exposure: navNow > 0 ? invested / navNow : 0 };
+  },
+
+  signalRows() {
+    const rank = { EXIT: 0, BUY: 1, HOLD: 2, WAIT: 3 };
+    const rows = [];
+    for (const sym of this.watch) {
+      const d = this._decision(sym);
+      if (!d) continue;
+      const px = d.price != null ? d.price : this.last[sym];
+      let entry = null, stop = null, target = null, qty = null, upside = null;
+      if (d.action === "BUY" && px > 0) {
+        stop = px * (1 - STOP_PCT); target = px * (1 + TARGET_PCT);
+        qty = this._sizing(px, stop); entry = px;
+      } else if (this.pos[sym]) {
+        const p = this.pos[sym];
+        entry = p.entry; stop = p.stop; target = p.target; qty = p.qty;
+        upside = (p.target / (px || p.entry) - 1) * 100;
+      }
+      rows.push({
+        symbol: sym, action: d.action, price: px, entry, stop, target, qty,
+        upside: d.action === "BUY" && px > 0 ? ((px * (1 + TARGET_PCT)) / px - 1) * 100 : upside,
+        basis: d.basis, ts: this.last[sym] ? this.last[sym] : null
+      });
+    }
+    rows.sort((a, b) => (rank[a.action] - rank[b.action]) || a.symbol.localeCompare(b.symbol));
+    return rows;
+  },
+
+  snapshot(now) {
+    const v = this.valuation();
+    const byEx = {};
+    for (const sym of this.watch) { const [ex] = splitKey(sym); byEx[ex] = (byEx[ex] || 0) + 1; }
+    return {
+      running: this.running,
+      status: this.running ? (marketOpen(now || new Date()) ? "RUNNING — live levels" : "RUNNING — market closed · levels on last close") : "Standby",
+      market_open: marketOpen(now || new Date()),
+      data_source: this.dataSource,
+      feed_ready: this.feedReady,
+      universe_size: this.watch.length,
+      by_exchange: byEx,
+      nav: v.navNow, pnl: v.pnl, cash: this.cash, invested: v.invested, exposure: v.exposure,
+      positions: this.pos,
+      trades: this.trades.slice(0, 40),
+      signals: this.signalRows()
+    };
+  }
+};
+/* ENGINE-END */
+</script>
+
+<script>
+/* universe — generated from bot/universe.py (166 symbols) */
+const UNIVERSE = [
+  "NSE:ADANIENT",
+  "NSE:ADANIPORTS",
+  "NSE:APOLLOHOSP",
+  "NSE:ASIANPAINT",
+  "NSE:AXISBANK",
+  "NSE:BAJAJ-AUTO",
+  "NSE:BAJFINANCE",
+  "NSE:BAJAJFINSV",
+  "NSE:BEL",
+  "NSE:BHARTIARTL",
+  "NSE:CIPLA",
+  "NSE:COALINDIA",
+  "NSE:DRREDDY",
+  "NSE:EICHERMOT",
+  "NSE:ETERNAL",
+  "NSE:GRASIM",
+  "NSE:HCLTECH",
+  "NSE:HDFCBANK",
+  "NSE:HDFCLIFE",
+  "NSE:HEROMOTOCO",
+  "NSE:HINDALCO",
+  "NSE:HINDUNILVR",
+  "NSE:ICICIBANK",
+  "NSE:INDUSINDBK",
+  "NSE:INFY",
+  "NSE:ITC",
+  "NSE:JIOFIN",
+  "NSE:JSWSTEEL",
+  "NSE:KOTAKBANK",
+  "NSE:LT",
+  "NSE:M&M",
+  "NSE:MARUTI",
+  "NSE:NESTLEIND",
+  "NSE:NTPC",
+  "NSE:ONGC",
+  "NSE:POWERGRID",
+  "NSE:RELIANCE",
+  "NSE:SBILIFE",
+  "NSE:SBIN",
+  "NSE:SHRIRAMFIN",
+  "NSE:SUNPHARMA",
+  "NSE:TATACONSUM",
+  "NSE:TATAMOTORS",
+  "NSE:TATASTEEL",
+  "NSE:TCS",
+  "NSE:TECHM",
+  "NSE:TITAN",
+  "NSE:TRENT",
+  "NSE:ULTRACEMCO",
+  "NSE:WIPRO",
+  "NSE:ABB",
+  "NSE:ADANIGREEN",
+  "NSE:ADANIPOWER",
+  "NSE:AMBUJACEM",
+  "NSE:ASHOKLEY",
+  "NSE:ASTRAL",
+  "NSE:AUBANK",
+  "NSE:AUROPHARMA",
+  "NSE:BALKRISIND",
+  "NSE:BANDHANBNK",
+  "NSE:BANKBARODA",
+  "NSE:BANKINDIA",
+  "NSE:BEL",
+  "NSE:BHARATFORG",
+  "NSE:BHEL",
+  "NSE:BIOCON",
+  "NSE:BPCL",
+  "NSE:BRITANNIA",
+  "NSE:CDSL",
+  "NSE:CHOLAFIN",
+  "NSE:COLPAL",
+  "NSE:CANBK",
+  "NSE:CROMPTON",
+  "NSE:CUMMINSIND",
+  "NSE:DABUR",
+  "NSE:DEEPAKNTR",
+  "NSE:DELHIVERY",
+  "NSE:DIXON",
+  "NSE:DLF",
+  "NSE:DMART",
+  "NSE:EXIDEIND",
+  "NSE:FEDERALBNK",
+  "NSE:FORTIS",
+  "NSE:GAIL",
+  "NSE:GLAND",
+  "NSE:GMRAIRPORT",
+  "NSE:GODREJCP",
+  "NSE:HAL",
+  "NSE:HAVELLS",
+  "NSE:HINDPETRO",
+  "NSE:HPCL",
+  "NSE:IDBI",
+  "NSE:INDHOTEL",
+  "NSE:INDIGO",
+  "NSE:IOC",
+  "NSE:IRCTC",
+  "NSE:JSWENERGY",
+  "NSE:JUBLFOOD",
+  "NSE:LICI",
+  "NSE:LICHSGFIN",
+  "NSE:LODHA",
+  "NSE:LTIM",
+  "NSE:LTF",
+  "NSE:LUPIN",
+  "NSE:MARICO",
+  "NSE:MAXHEALTH",
+  "NSE:MOTHERSON",
+  "NSE:MPHASIS",
+  "NSE:MRF",
+  "NSE:NAUKRI",
+  "NSE:NHPC",
+  "NSE:OBEROIRLTY",
+  "NSE:OFSS",
+  "NSE:PAGEIND",
+  "NSE:PATANJALI",
+  "NSE:PFC",
+  "NSE:PIDILITIND",
+  "NSE:PNB",
+  "NSE:POLYCAB",
+  "NSE:PRESTIGE",
+  "NSE:RAMCOCEM",
+  "NSE:RVNL",
+  "NSE:SHREECEM",
+  "NSE:SIEMENS",
+  "NSE:SRF",
+  "NSE:SUNTV",
+  "NSE:SUPREMEIND",
+  "NSE:SUZLON",
+  "NSE:TATAPOWER",
+  "NSE:TATACOMM",
+  "NSE:TIINDIA",
+  "NSE:TORNTPOWER",
+  "NSE:TVSMOTOR",
+  "NSE:UNIONBANK",
+  "NSE:VBL",
+  "NSE:VEDL",
+  "NSE:VOLTAS",
+  "NSE:ZYDUSLIFE",
+  "BSE:CESC",
+  "BSE:CUB",
+  "BSE:FINCABLES",
+  "BSE:GESHIP",
+  "BSE:HONAUT",
+  "BSE:JKPAPER",
+  "BSE:KPRMILL",
+  "BSE:MANYAVAR",
+  "BSE:NAVA",
+  "BSE:NCC",
+  "BSE:NESCO",
+  "BSE:NIIT",
+  "BSE:ORIENTELEC",
+  "BSE:PERSISTENT",
+  "BSE:RAINBOW",
+  "BSE:RATNAMANI",
+  "BSE:SCHAEFFLER",
+  "BSE:SHIVALIK",
+  "BSE:SONACOMS",
+  "BSE:SUNDRMFAST",
+  "BSE:SWIGGY",
+  "BSE:THERMAX",
+  "BSE:TIMETABLESO",
+  "BSE:TISSO",
+  "BSE:VMART",
+  "BSE:WELSPUNLIV",
+  "BSE:ZEEL",
+  "BSE:ZOMATO",
+];
+const NIFTY_50 = ["NSE:ADANIENT", "NSE:ADANIPORTS", "NSE:APOLLOHOSP", "NSE:ASIANPAINT", "NSE:AXISBANK", "NSE:BAJAJ-AUTO", "NSE:BAJFINANCE", "NSE:BAJAJFINSV", "NSE:BEL", "NSE:BHARTIARTL", "NSE:CIPLA", "NSE:COALINDIA", "NSE:DRREDDY", "NSE:EICHERMOT", "NSE:ETERNAL", "NSE:GRASIM", "NSE:HCLTECH", "NSE:HDFCBANK", "NSE:HDFCLIFE", "NSE:HEROMOTOCO", "NSE:HINDALCO", "NSE:HINDUNILVR", "NSE:ICICIBANK", "NSE:INDUSINDBK", "NSE:INFY", "NSE:ITC", "NSE:JIOFIN", "NSE:JSWSTEEL", "NSE:KOTAKBANK", "NSE:LT", "NSE:M&M", "NSE:MARUTI", "NSE:NESTLEIND", "NSE:NTPC", "NSE:ONGC", "NSE:POWERGRID", "NSE:RELIANCE", "NSE:SBILIFE", "NSE:SBIN", "NSE:SHRIRAMFIN", "NSE:SUNPHARMA", "NSE:TATACONSUM", "NSE:TATAMOTORS", "NSE:TATASTEEL", "NSE:TCS", "NSE:TECHM", "NSE:TITAN", "NSE:TRENT", "NSE:ULTRACEMCO", "NSE:WIPRO"];
+</script>
+<script>
+/* ---------- data layer + UI ---------- */
+const $ = id => document.getElementById(id);
+const fmt = n => n == null ? "–" : n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const money = n => n == null ? "–" : "₹" + fmt(n);
+const istTime = ts => {
+  const d = new Date(ts + (330 + new Date().getTimezoneOffset()) * 60000);
+  return d.toTimeString().slice(0, 8);
+};
+
+function yTicker(sym) { const [ex, s] = splitKey(sym); return s + (ex === "BSE" ? ".BO" : ".NS"); }
+
+const SLOW_MA = STRATEGY.slow;
+const PROXIES = [
+  u => u,
+  u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+  u => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
+];
+let proxyIdx = 0; // index of the relay that last worked (0 = direct guess each time)
+
+async function fetchChart(sym) {
+  const base = "https://query1.finance.yahoo.com/v8/finance/chart/" + yTicker(sym) + "?range=1y&interval=1d";
+  const order = [0, ...([1, 2].filter(i => i !== proxyIdx))];
+  for (const pi of [proxyIdx, ...order.filter(i => i !== proxyIdx)]) {
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000);
+      const r = await fetch(PROXIES[pi](base), { signal: ctl.signal });
+      clearTimeout(t);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+      const ch = j && j.chart && j.chart.result && j.chart.result[0];
+      if (!ch) throw new Error("bad payload");
+      proxyIdx = pi;
+      const closes = (ch.indicators.quote[0].close || []).filter(x => x != null);
+      const ltp = ch.meta && ch.meta.regularMarketPrice != null ? ch.meta.regularMarketPrice : closes[closes.length - 1];
+      return { closes, ltp, via: pi };
+    } catch (e) { /* try next relay */ }
+  }
+  return null;
+}
+
+/* ---------- simulated fallback (always clearly labelled) ---------- */
+let sim = null;
+function startSim() {
+  if (sim) return;
+  sim = {};
+  for (const sym of Engine.watch) {
+    const base = 200 + Math.random() * 2800;
+    const bars = [];
+    let p = base;
+    for (let i = 0; i < SLOW_MA + 60; i++) { p *= 1 + (Math.random() - 0.49) * 0.02; bars.push(p); }
+    sim[sym] = base;
+    Engine.seed(sym, bars);
+    Engine.append(sym, p);
+  }
+  Engine.dataSource = "SIMULATED — offline demo data (no live feed reachable)";
+  Engine.feedReady = false;
+}
+function simTick() {
+  if (!sim) startSim();
+  const some = Engine.watch.slice().sort(() => Math.random() - 0.5).slice(0, 12);
+  for (const s of some) Engine.append(s, Engine.last[s] * (1 + (Math.random() - 0.5) * 0.004));
+  Engine.dataSource = "SIMULATED — offline demo data (no live feed reachable)";
+}
+
+/* ---------- engine loop ---------- */
+let stopFlag = false, loopActive = false;
+function startLoop() {
+  if (loopActive) return;
+  loopActive = true; stopFlag = false;
+  loop().catch(e => { Engine.statusInfo = "loop error: " + e.message; }).finally(() => { loopActive = false; });
+}
+async function cycle() {
+  const list = Engine.watch;
+  const CHUNK = 6;
+  let ok = 0;
+  for (let i = 0; i < list.length; i += CHUNK) {
+    if (stopFlag) return { ok, done: false };
+    const batch = list.slice(i, i + CHUNK);
+    const res = await Promise.all(batch.map(fetchChart));
+    res.forEach((r, j) => {
+      if (r) {
+        ok++;
+        Engine.seed(batch[j], r.closes);
+        Engine.setPrice(batch[j], r.ltp);
+        Engine.feedReady = true;
+      }
+    });
+    await new Promise(z => setTimeout(z, 700));
+  }
+  return { ok, done: true };
+}
+async function loop() {
+  let liveFailures = 0;
+  while (!stopFlag) {
+    Engine.running = true;
+    const t0 = Date.now();
+    const { ok, done } = await cycle();
+    Engine.statusInfo = `cycle ${Math.round((Date.now() - t0) / 1000)}s · ${ok}/${Engine.watch.length} updated`;
+    if (done) {
+      if (ok === 0) {
+        liveFailures++;
+        if (liveFailures >= 2 && !sim) startSim();
+        Engine.dataSource = sim ? "SIMULATED — offline demo data (no live feed reachable)"
+          : `Live feed unreachable (retry ${liveFailures}) — showing last known data`;
+      } else {
+        liveFailures = 0;
+        if (sim) { sim = null; Engine.reset(); Engine.statusInfo = "live feed recovered — model book reset to fresh ₹25 Cr"; }
+        Engine.dataSource = proxyIdx === 0 ? "Live NSE/BSE via Yahoo Finance (delayed ~15 min) — direct"
+          : "Live NSE/BSE via Yahoo (delayed ~15 min) — via public CORS relay #" + proxyIdx;
+      }
+    }
+    modelLoop();
+    await new Promise(z => setTimeout(z, 5000));
+  }
+}
+
+/* model fills run on a fast sim tick / live steps */
+function modelLoop() {
+  if (sim) simTick();
+  Engine.step(new Date());
+  saveBook();
+  render();
+}
+
+/* ---------- persistence ---------- */
+const KEY = "itb.book.v2";
+function saveBook() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({
+      nav: Engine.nav, cash: Engine.cash, pos: Engine.pos, trades: Engine.trades,
+      last: Engine.last, preset: $("preset").value
+    }));
+  } catch (e) { /* storage unavailable (file:// in some browsers) */ }
+}
+function loadBook() {
+  try {
+    const j = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (j && typeof j.nav === "number") {
+      Engine.nav = j.nav; Engine.cash = j.cash; Engine.pos = j.pos || {};
+      Engine.trades = j.trades || []; Engine.last = j.last || {};
+      if (j.preset) $("preset").value = j.preset;
+      return true;
+    }
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
+/* ---------- render ---------- */
+function setWatch() {
+  Engine.watch = $("preset").value === "wide" ? UNIVERSE.slice() : NIFTY_50.map(s => "NSE:" + s);
+}
+function render() {
+  const s = Engine.snapshot(new Date());
+  $("clock").textContent = new Date(Date.now() + (330 + new Date().getTimezoneOffset()) * 60000).toTimeString().slice(0, 8) + " IST";
+  $("status").textContent = s.status + (Engine.statusInfo ? " · " + Engine.statusInfo : "");
+  const b = $("badge-open");
+  b.textContent = s.market_open ? "MARKET OPEN" : "Market closed";
+  b.className = "text-xs px-2 py-1 rounded border " + (s.market_open ? "text-green-400 border-green-700" : "border-gray-700 text-gray-400");
+  const bs = $("badge-src");
+  const simulated = /SIMULATED/i.test(s.data_source);
+  bs.textContent = simulated ? "SIMULATED DATA" : "LIVE (delayed)";
+  bs.className = "text-xs px-2 py-1 rounded border " + (simulated ? "text-red-400 border-red-700" : "text-green-400 border-green-700");
+  bs.title = s.data_source;
+  $("nav").textContent = money(s.nav) + (s.pnl ? ` (${s.pnl >= 0 ? "+" : ""}${fmt(s.pnl)})` : "");
+  $("inv").textContent = money(s.invested);
+  $("exp").textContent = (s.exposure * 100).toFixed(1) + "%";
+  $("cash").textContent = money(s.cash);
+
+  $("signals").innerHTML = s.signals.slice(0, 300).map(r => {
+    const c = r.action === "BUY" ? "text-green-400" : r.action === "EXIT" ? "text-red-400" : r.action === "HOLD" ? "text-gray-400" : "text-gray-600";
+    const [ex, sy] = splitKey(r.symbol);
+    return `<tr class="border-t border-gray-900">
+      <td class="py-1"><span class="pill ${ex === "BSE" ? "text-purple-300" : "text-blue-300"}">${ex}</span> ${sy}</td>
+      <td class="${c} font-semibold">${r.action}</td>
+      <td class="text-right">${fmt(r.price)}</td>
+      <td class="text-right">${fmt(r.entry)}</td>
+      <td class="text-right text-red-400/80">${fmt(r.stop)}</td>
+      <td class="text-right text-green-400/80">${fmt(r.target)}</td>
+      <td class="text-right">${r.qty != null ? fmt(r.qty) : "–"}</td>
+      <td class="text-right ${r.upside >= 0 ? "text-green-400" : "text-red-400"}">${r.upside != null ? "+" + r.upside.toFixed(1) + "%" : "–"}</td>
+      <td class="pl-3 text-gray-500">${r.basis || ""}</td></tr>`;
+  }).join("");
+
+  const poss = Object.entries(s.positions);
+  $("poscount").textContent = poss.length;
+  $("positions").innerHTML = poss.map(([sym, p]) => {
+    const [ex, sy] = splitKey(sym);
+    const w = (p.ltp * p.qty / s.nav) * 100;
+    return `<tr class="border-t border-gray-900"><td class="py-1"><span class="pill ${ex === "BSE" ? "text-purple-300" : "text-blue-300"}">${ex}</span> ${sy}</td>
+      <td class="text-right">${fmt(p.qty)}</td><td class="text-right">${fmt(p.entry)}</td><td class="text-right">${fmt(p.ltp)}</td>
+      <td class="text-right ${p.pnl >= 0 ? "text-green-400" : "text-red-400"}">${p.pnl >= 0 ? "+" : ""}${fmt(p.pnl)}</td>
+      <td class="text-right">${w.toFixed(1)}%</td>
+      <td class="text-right text-red-400/80">${fmt(p.stop)}</td><td class="text-right text-green-400/80">${fmt(p.target)}</td></tr>`;
+  }).join("") || `<tr><td colspan="8" class="py-2 text-gray-600">No open positions yet — model buys on MA cross-up while the market is open.</td></tr>`;
+
+  $("fills").innerHTML = s.trades.map(t => {
+    const c = t.side === "BUY" ? "text-green-400" : "text-red-400";
+    return `<div>${istTime(t.ts)} · <span class="${c}">${t.side}</span> ${t.symbol} · ${fmt(t.qty)} @ ₹${fmt(t.px)} · <span class="text-gray-500">${t.reason}${t.pnl != null ? " · P&L " + (t.pnl >= 0 ? "+" : "") + fmt(t.pnl) : ""}</span></div>`;
+  }).join("") || `<div class="text-gray-600">No fills yet.</div>`;
+}
+</script>
+<script>
+/* ---------- bootstrap ---------- */
+setWatch();
+loadBook();
+render();
+Engine.running = true;
+$("btn-toggle").textContent = "Stop Fund";
+$("btn-toggle").className = "px-4 py-2 rounded bg-red-600 hover:bg-red-500 font-semibold text-sm";
+startLoop();
+render();
+$("preset").addEventListener("change", () => { setWatch(); saveBook(); render(); });
+$("btn-toggle").addEventListener("click", () => {
+  if (Engine.running) {
+    stopFlag = true; Engine.running = false;
+    $("btn-toggle").textContent = "Run Fund"; $("btn-toggle").className = "px-4 py-2 rounded bg-green-600 hover:bg-green-500 font-semibold text-sm";
+    $("status").textContent = "Stopped";
+  } else {
+    Engine.running = true; startLoop();
+    $("btn-toggle").textContent = "Stop Fund"; $("btn-toggle").className = "px-4 py-2 rounded bg-red-600 hover:bg-red-500 font-semibold text-sm";
+    render();
+  }
+});
+$("btn-reset").addEventListener("click", () => {
+  Engine.reset(); sim = null; try { localStorage.removeItem(KEY); } catch (e) {}
+  if (!Engine.running) { startSim(); }
+  render();
+});
+setInterval(() => {
+  if (sim && Engine.running) {
+    simTick(); Engine.step(new Date()); saveBook(); render();
+  }
+}, 2000);
+</script>
+</body>
+</html>
