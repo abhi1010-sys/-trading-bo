@@ -32,6 +32,13 @@
         <span id="badge-src" class="text-xs px-2 py-1 rounded border border-gray-700 text-gray-400">Source</span>
         <span class="text-xs px-2 py-1 rounded border border-gray-700 text-yellow-400" title="Simulated model book — no real orders">Model book only</span>
       </span>
+      <div class="w-full flex flex-wrap items-center gap-2 border-t border-gray-800 pt-3 mt-1">
+        <label class="text-xs text-gray-500">Zero-delay feed (optional):</label>
+        <input id="sk-key" type="password" placeholder="Sharekhan API key" class="bg-gray-900 border border-gray-700 rounded text-xs px-2 py-1.5 w-44" />
+        <input id="sk-token" type="password" placeholder="Access token (from login helper)" class="bg-gray-900 border border-gray-700 rounded text-xs px-2 py-1.5 w-64" />
+        <button id="btn-sk" class="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs font-semibold">Connect live Feed</button>
+        <span id="sk-status" class="text-xs text-gray-500">not connected — using delayed live feed</span>
+      </div>
     </div>
 
     <div class="grid grid-cols-4 gap-4 mb-4">
@@ -104,19 +111,24 @@ function ma(arr, n) {
 }
 
 const Engine = {
-  nav: NAV_START, cash: NAV_START, pos: {}, trades: [], bars: {}, last: {},
+  nav: NAV_START, cash: NAV_START, pos: {}, trades: [], bars: {}, last: {}, tickTs: {},
   watch: [], running: false, dataSource: "starting…", feedReady: false,
 
   reset() {
     this.nav = NAV_START; this.cash = NAV_START; this.pos = {}; this.trades = [];
-    this.bars = {}; this.last = {};
+    this.bars = {}; this.last = {}; this.tickTs = {};
   },
 
   seed(sym, closes) {
     const b = (closes || []).filter(x => typeof x === "number" && isFinite(x) && x > 0).slice(-MAX_BARS);
     if (b.length) this.bars[sym] = b;
   },
-  setPrice(sym, ltp) { if (typeof ltp === "number" && isFinite(ltp) && ltp > 0) this.last[sym] = ltp; },
+  setPrice(sym, ltp, streamed) {
+    if (typeof ltp === "number" && isFinite(ltp) && ltp > 0) {
+      this.last[sym] = ltp;
+      if (streamed) this.tickTs[sym] = Date.now();
+    }
+  },
   append(sym, p) {
     if (!(typeof p === "number") || !isFinite(p) || p <= 0) return;
     const b = (this.bars[sym] || []).concat([p]).slice(-MAX_BARS);
@@ -126,6 +138,7 @@ const Engine = {
   series(sym) {
     const b = this.bars[sym]; if (!b || b.length < 2) return null;
     const l = this.last[sym];
+    if (l != null && l > 0) return b.slice(0, -1).concat([l]).slice(-MAX_BARS);
     return b.slice(-MAX_BARS);
   },
 
@@ -426,6 +439,257 @@ const UNIVERSE = [
 const NIFTY_50 = ["NSE:ADANIENT", "NSE:ADANIPORTS", "NSE:APOLLOHOSP", "NSE:ASIANPAINT", "NSE:AXISBANK", "NSE:BAJAJ-AUTO", "NSE:BAJFINANCE", "NSE:BAJAJFINSV", "NSE:BEL", "NSE:BHARTIARTL", "NSE:CIPLA", "NSE:COALINDIA", "NSE:DRREDDY", "NSE:EICHERMOT", "NSE:ETERNAL", "NSE:GRASIM", "NSE:HCLTECH", "NSE:HDFCBANK", "NSE:HDFCLIFE", "NSE:HEROMOTOCO", "NSE:HINDALCO", "NSE:HINDUNILVR", "NSE:ICICIBANK", "NSE:INDUSINDBK", "NSE:INFY", "NSE:ITC", "NSE:JIOFIN", "NSE:JSWSTEEL", "NSE:KOTAKBANK", "NSE:LT", "NSE:M&M", "NSE:MARUTI", "NSE:NESTLEIND", "NSE:NTPC", "NSE:ONGC", "NSE:POWERGRID", "NSE:RELIANCE", "NSE:SBILIFE", "NSE:SBIN", "NSE:SHRIRAMFIN", "NSE:SUNPHARMA", "NSE:TATACONSUM", "NSE:TATAMOTORS", "NSE:TATASTEEL", "NSE:TCS", "NSE:TECHM", "NSE:TITAN", "NSE:TRENT", "NSE:ULTRACEMCO", "NSE:WIPRO"];
 </script>
 <script>
+/* scripCode map for the zero-delay Sharekhan feed — generated from the
+   public Sharekhan master (2026-11-24): 162/166 symbols; LTIM,
+   BSE:TIMETABLESO, BSE:TISSO not present in the master (Yahoo fallback) */
+const SCRIP_CODES = {
+  "BSE:CESC": 500084,
+  "BSE:CUB": 532210,
+  "BSE:FINCABLES": 500144,
+  "BSE:GESHIP": 500620,
+  "BSE:HONAUT": 517174,
+  "BSE:JKPAPER": 532162,
+  "BSE:KPRMILL": 532889,
+  "BSE:MANYAVAR": 543463,
+  "BSE:NAVA": 513023,
+  "BSE:NCC": 500294,
+  "BSE:NESCO": 505355,
+  "BSE:NIIT": 500304,
+  "BSE:ORIENTELEC": 541301,
+  "BSE:PERSISTENT": 533179,
+  "BSE:RAINBOW": 543524,
+  "BSE:RATNAMANI": 520111,
+  "BSE:SCHAEFFLER": 505790,
+  "BSE:SHIVALIK": 539148,
+  "BSE:SONACOMS": 543300,
+  "BSE:SUNDRMFAST": 500403,
+  "BSE:SWIGGY": 544285,
+  "BSE:THERMAX": 500411,
+  "BSE:VMART": 534976,
+  "BSE:WELSPUNLIV": 514162,
+  "BSE:ZEEL": 505537,
+  "BSE:ZOMATO": 543320,
+  "NSE:ABB": 13,
+  "NSE:ADANIENT": 25,
+  "NSE:ADANIGREEN": 3563,
+  "NSE:ADANIPORTS": 15083,
+  "NSE:ADANIPOWER": 17388,
+  "NSE:AMBUJACEM": 1270,
+  "NSE:APOLLOHOSP": 157,
+  "NSE:ASHOKLEY": 212,
+  "NSE:ASIANPAINT": 236,
+  "NSE:ASTRAL": 14418,
+  "NSE:AUBANK": 21238,
+  "NSE:AUROPHARMA": 275,
+  "NSE:AXISBANK": 5900,
+  "NSE:BAJAJ-AUTO": 16669,
+  "NSE:BAJAJFINSV": 16675,
+  "NSE:BAJFINANCE": 317,
+  "NSE:BALKRISIND": 335,
+  "NSE:BANDHANBNK": 2263,
+  "NSE:BANKBARODA": 4668,
+  "NSE:BANKINDIA": 4745,
+  "NSE:BEL": 383,
+  "NSE:BHARATFORG": 422,
+  "NSE:BHARTIARTL": 10604,
+  "NSE:BHEL": 438,
+  "NSE:BIOCON": 11373,
+  "NSE:BPCL": 526,
+  "NSE:BRITANNIA": 547,
+  "NSE:CANBK": 10794,
+  "NSE:CDSL": 21174,
+  "NSE:CHOLAFIN": 685,
+  "NSE:CIPLA": 694,
+  "NSE:COALINDIA": 20374,
+  "NSE:COLPAL": 15141,
+  "NSE:CROMPTON": 17094,
+  "NSE:CUMMINSIND": 1901,
+  "NSE:DABUR": 772,
+  "NSE:DEEPAKNTR": 19943,
+  "NSE:DELHIVERY": 9599,
+  "NSE:DIXON": 21690,
+  "NSE:DLF": 14732,
+  "NSE:DMART": 19913,
+  "NSE:DRREDDY": 881,
+  "NSE:EICHERMOT": 910,
+  "NSE:ETERNAL": 5097,
+  "NSE:EXIDEIND": 676,
+  "NSE:FEDERALBNK": 1023,
+  "NSE:FORTIS": 14592,
+  "NSE:GAIL": 4717,
+  "NSE:GLAND": 1186,
+  "NSE:GMRAIRPORT": 13528,
+  "NSE:GODREJCP": 10099,
+  "NSE:GRASIM": 1232,
+  "NSE:HAL": 2303,
+  "NSE:HAVELLS": 9819,
+  "NSE:HCLTECH": 7229,
+  "NSE:HDFCBANK": 1333,
+  "NSE:HDFCLIFE": 467,
+  "NSE:HEROMOTOCO": 1348,
+  "NSE:HINDALCO": 1363,
+  "NSE:HINDPETRO": 1406,
+  "NSE:HINDUNILVR": 1394,
+  "NSE:HPCL": 1406,
+  "NSE:ICICIBANK": 4963,
+  "NSE:IDBI": 1476,
+  "NSE:INDHOTEL": 1512,
+  "NSE:INDIGO": 11195,
+  "NSE:INDUSINDBK": 5258,
+  "NSE:INFY": 1594,
+  "NSE:IOC": 1624,
+  "NSE:IRCTC": 13611,
+  "NSE:ITC": 1660,
+  "NSE:JIOFIN": 18143,
+  "NSE:JSWENERGY": 17869,
+  "NSE:JSWSTEEL": 11723,
+  "NSE:JUBLFOOD": 18096,
+  "NSE:KOTAKBANK": 1922,
+  "NSE:LICHSGFIN": 1997,
+  "NSE:LICI": 9480,
+  "NSE:LODHA": 3220,
+  "NSE:LT": 11483,
+  "NSE:LTF": 24948,
+  "NSE:LUPIN": 10440,
+  "NSE:M&M": 2031,
+  "NSE:MARICO": 4067,
+  "NSE:MARUTI": 10999,
+  "NSE:MAXHEALTH": 22377,
+  "NSE:MOTHERSON": 4204,
+  "NSE:MPHASIS": 4503,
+  "NSE:MRF": 2277,
+  "NSE:NAUKRI": 13751,
+  "NSE:NESTLEIND": 17963,
+  "NSE:NHPC": 17400,
+  "NSE:NTPC": 11630,
+  "NSE:OBEROIRLTY": 20242,
+  "NSE:OFSS": 10738,
+  "NSE:ONGC": 2475,
+  "NSE:PAGEIND": 14413,
+  "NSE:PATANJALI": 17029,
+  "NSE:PFC": 14299,
+  "NSE:PIDILITIND": 2664,
+  "NSE:PNB": 10666,
+  "NSE:POLYCAB": 9590,
+  "NSE:POWERGRID": 14977,
+  "NSE:PRESTIGE": 20302,
+  "NSE:RAMCOCEM": 2043,
+  "NSE:RELIANCE": 2885,
+  "NSE:RVNL": 9552,
+  "NSE:SBILIFE": 21808,
+  "NSE:SBIN": 3045,
+  "NSE:SHREECEM": 3103,
+  "NSE:SHRIRAMFIN": 4306,
+  "NSE:SIEMENS": 3150,
+  "NSE:SRF": 3273,
+  "NSE:SUNPHARMA": 3351,
+  "NSE:SUNTV": 13404,
+  "NSE:SUPREMEIND": 3363,
+  "NSE:SUZLON": 12018,
+  "NSE:TATACOMM": 3721,
+  "NSE:TATACONSUM": 3432,
+  "NSE:TATAMOTORS": 3456,
+  "NSE:TATAPOWER": 3426,
+  "NSE:TATASTEEL": 3499,
+  "NSE:TCS": 11536,
+  "NSE:TECHM": 13538,
+  "NSE:TIINDIA": 312,
+  "NSE:TITAN": 3506,
+  "NSE:TORNTPOWER": 13786,
+  "NSE:TRENT": 1964,
+  "NSE:TVSMOTOR": 8479,
+  "NSE:ULTRACEMCO": 11532,
+  "NSE:UNIONBANK": 10753,
+  "NSE:VBL": 18921,
+  "NSE:VEDL": 3063,
+  "NSE:VOLTAS": 3718,
+  "NSE:WIPRO": 3787,
+  "NSE:ZYDUSLIFE": 7929,
+};
+</script>
+
+<script>
+/* ---------- optional zero-delay Sharekhan WebSocket feed ---------- */
+let skWs = null, skHeart = null, skRetry = 0;
+function skAlive() { return skWs && skWs.readyState === 1; }
+function skStatus(t) { document.getElementById("sk-status").textContent = t; }
+function skCode(sym) {
+  const c = SCRIP_CODES[sym];
+  return c == null ? null : (sym.startsWith("BSE:") ? "BC" : "NC") + c;
+}
+function skCodes() {
+  const out = [];
+  for (const sym of Engine.watch) { const c = skCode(sym); if (c != null) out.push(c); }
+  return out;
+}
+function skBuildMap() {
+  Engine.streamByCode = {};
+  for (const sym of Engine.watch) {
+    const c = skCode(sym);
+    if (c != null) { Engine.streamByCode[c] = sym; Engine.streamByCode[c.replace(/^N[CB]/, "")] = sym; }
+  }
+}
+function subscribeSkCodes(codes) {
+  for (let i = 0; i < codes.length; i += 200)
+    skWs.send(JSON.stringify({ action: "subscribe", key: ["feed", "ack"], value: codes.slice(i, i + 200) }));
+}
+function skHandleTick(tick) {
+  const code = String(tick.Token != null ? tick.Token : tick.token != null ? tick.token : tick.TokenCode != null ? tick.TokenCode : tick.ScripCode != null ? tick.ScripCode : tick.scripCode != null ? tick.scripCode : "");
+  const px = tick.Ltp != null ? tick.Ltp : tick.ltp != null ? tick.ltp : tick.lastPrice != null ? tick.lastPrice : tick.LastTradedPrice != null ? tick.LastTradedPrice : tick.price != null ? tick.price : tick.LAST_PRICE;
+  if (code && typeof px === "number") {
+    const sym = Engine.streamByCode[code];
+    if (sym) { Engine.setPrice(sym, px, true); Engine.tickCount = (Engine.tickCount || 0) + 1; }
+  }
+}
+function skApplyParsed(j) {
+  if (Array.isArray(j)) j.forEach(skHandleTick);
+  else if (j && typeof j === "object") skHandleTick(j);
+}
+function skHandleMessage(data) {
+  let obj = data;
+  if (data instanceof Blob) { data.text().then(skHandleMessage).catch(() => { Engine.streamBinary = (Engine.streamBinary || 0) + 1; }); return; }
+  if (data instanceof ArrayBuffer) obj = new TextDecoder().decode(data);
+  if (typeof obj === "string") {
+    try { obj = JSON.parse(obj); }
+    catch (e) { Engine.streamBinary = (Engine.streamBinary || 0) + 1; return; }
+  }
+  skApplyParsed(obj);
+}
+function connectSharekhan() {
+  const key = document.getElementById("sk-key").value.trim();
+  const tok = document.getElementById("sk-token").value.trim();
+  if (!tok) { skStatus("paste your access token (run scripts/sharekhan_login.py to get one)"); return; }
+  try { localStorage.setItem("itb.sk", JSON.stringify({ key, tok })); } catch (e) {}
+  skBuildMap();
+  if (skWs) { const old = skWs; skWs = null; try { old.close(); } catch (e) {} }
+  skStatus("connecting…");
+  const ws = new WebSocket("wss://stream.sharekhan.com/skstream/api/stream?ACCESS_TOKEN=" + encodeURIComponent(tok));
+  ws.binaryType = "arraybuffer";
+  skWs = ws;
+  ws.onopen = () => {
+    skRetry = 0;
+    skStatus("connected — subscribing " + Engine.watch.length + " symbols…");
+    subscribeSkCodes(skCodes());
+    clearInterval(skHeart);
+    skHeart = setInterval(() => { if (skWs === ws) { try { ws.send("ping"); } catch (e) {} } }, 25000);
+  };
+  ws.onmessage = (ev) => {
+    if (ev.data === "pong" || ev.data === "ping") return;
+    skHandleMessage(ev.data);
+  };
+  ws.onerror = () => { if (skWs === ws) skStatus("connection error — check token validity"); };
+  ws.onclose = () => {
+    if (skWs === ws) skWs = null;
+    clearInterval(skHeart);
+    if (Engine.running && skRetry < 5) {
+      skRetry++;
+      skStatus("stream closed — retry " + skRetry + "/5…");
+      setTimeout(connectSharekhan, 2000 * skRetry);
+    } else skStatus("disconnected — falling back to delayed feed");
+  };
+}
+</script>
+<script>
 /* ---------- data layer + UI ---------- */
 const $ = id => document.getElementById(id);
 const fmt = n => n == null ? "–" : n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -509,7 +773,8 @@ async function cycle() {
       if (r) {
         ok++;
         Engine.seed(batch[j], r.closes);
-        Engine.setPrice(batch[j], r.ltp);
+        const ts = Engine.tickTs[batch[j]];
+        if (!ts || Date.now() - ts > 90000) Engine.setPrice(batch[j], r.ltp);
         Engine.feedReady = true;
       }
     });
@@ -525,7 +790,7 @@ async function loop() {
     const { ok, done } = await cycle();
     Engine.statusInfo = `cycle ${Math.round((Date.now() - t0) / 1000)}s · ${ok}/${Engine.watch.length} updated`;
     if (done) {
-      if (ok === 0) {
+      if (ok === 0 && !skAlive()) {
         liveFailures++;
         if (liveFailures >= 2 && !sim) startSim();
         Engine.dataSource = sim ? "SIMULATED — offline demo data (no live feed reachable)"
@@ -533,8 +798,9 @@ async function loop() {
       } else {
         liveFailures = 0;
         if (sim) { sim = null; Engine.reset(); Engine.statusInfo = "live feed recovered — model book reset to fresh ₹25 Cr"; }
-        Engine.dataSource = proxyIdx === 0 ? "Live NSE/BSE via Yahoo Finance (delayed ~15 min) — direct"
-          : "Live NSE/BSE via Yahoo (delayed ~15 min) — via public CORS relay #" + proxyIdx;
+        if (skAlive()) Engine.dataSource = "ZERO-DELAY via Sharekhan WebSocket (live ticks)";
+        else if (proxyIdx === 0) Engine.dataSource = "Live NSE/BSE via Yahoo Finance (delayed ~15 min) — direct";
+        else Engine.dataSource = "Live NSE/BSE via Yahoo (delayed ~15 min) — via public CORS relay #" + proxyIdx;
       }
     }
     modelLoop();
@@ -575,18 +841,21 @@ function loadBook() {
 
 /* ---------- render ---------- */
 function setWatch() {
-  Engine.watch = $("preset").value === "wide" ? UNIVERSE.slice() : NIFTY_50.map(s => "NSE:" + s);
+  const norm = s => s.includes(":") ? s : "NSE:" + s;
+  Engine.watch = $("preset").value === "wide" ? UNIVERSE.slice() : NIFTY_50.map(norm);
 }
 function render() {
   const s = Engine.snapshot(new Date());
   $("clock").textContent = new Date(Date.now() + (330 + new Date().getTimezoneOffset()) * 60000).toTimeString().slice(0, 8) + " IST";
-  $("status").textContent = s.status + (Engine.statusInfo ? " · " + Engine.statusInfo : "");
+  $("status").textContent = s.status + (Engine.statusInfo ? " · " + Engine.statusInfo : "")
+    + (Engine.tickCount ? " · " + Engine.tickCount + " stream ticks" : "");
   const b = $("badge-open");
   b.textContent = s.market_open ? "MARKET OPEN" : "Market closed";
   b.className = "text-xs px-2 py-1 rounded border " + (s.market_open ? "text-green-400 border-green-700" : "border-gray-700 text-gray-400");
   const bs = $("badge-src");
   const simulated = /SIMULATED/i.test(s.data_source);
-  bs.textContent = simulated ? "SIMULATED DATA" : "LIVE (delayed)";
+  const zeroDelay = /ZERO-DELAY/i.test(s.data_source);
+  bs.textContent = simulated ? "SIMULATED DATA" : zeroDelay ? "LIVE · ZERO-DELAY" : "LIVE (delayed)";
   bs.className = "text-xs px-2 py-1 rounded border " + (simulated ? "text-red-400 border-red-700" : "text-green-400 border-green-700");
   bs.title = s.data_source;
   $("nav").textContent = money(s.nav) + (s.pnl ? ` (${s.pnl >= 0 ? "+" : ""}${fmt(s.pnl)})` : "");
@@ -637,7 +906,15 @@ $("btn-toggle").textContent = "Stop Fund";
 $("btn-toggle").className = "px-4 py-2 rounded bg-red-600 hover:bg-red-500 font-semibold text-sm";
 startLoop();
 render();
-$("preset").addEventListener("change", () => { setWatch(); saveBook(); render(); });
+try {
+  const saved = JSON.parse(localStorage.getItem("itb.sk") || "null");
+  if (saved && saved.tok) {
+    document.getElementById("sk-key").value = saved.key || "";
+    document.getElementById("sk-token").value = saved.tok;
+    connectSharekhan();
+  }
+} catch (e) {}
+$("preset").addEventListener("change", () => { setWatch(); saveBook(); if (skAlive()) { skBuildMap(); subscribeSkCodes(skCodes()); } render(); });
 $("btn-toggle").addEventListener("click", () => {
   if (Engine.running) {
     stopFlag = true; Engine.running = false;
@@ -649,15 +926,16 @@ $("btn-toggle").addEventListener("click", () => {
     render();
   }
 });
+$("btn-sk").addEventListener("click", connectSharekhan);
 $("btn-reset").addEventListener("click", () => {
   Engine.reset(); sim = null; try { localStorage.removeItem(KEY); } catch (e) {}
   if (!Engine.running) { startSim(); }
   render();
 });
 setInterval(() => {
-  if (sim && Engine.running) {
-    simTick(); Engine.step(new Date()); saveBook(); render();
-  }
+  if (!Engine.running) return;
+  if (sim) { simTick(); Engine.step(new Date()); saveBook(); render(); }
+  else if (skAlive()) { modelLoop(); }
 }, 2000);
 </script>
 </body>
